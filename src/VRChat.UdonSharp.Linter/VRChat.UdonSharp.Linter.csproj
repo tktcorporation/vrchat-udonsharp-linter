@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- NuGet Package Settings -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>udonsharp-lint</ToolCommandName>
+    <PackageId>VRChat.UdonSharp.Linter</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>tktcorporation</Authors>
+    <Description>A static analyzer and linter for VRChat UdonSharp scripts that detects common errors and unsupported features</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/tktcorporation/vrchat-udonsharp-linter</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/tktcorporation/vrchat-udonsharp-linter</PackageProjectUrl>
+    <PackageTags>vrchat;udonsharp;udon;linter;analyzer;unity</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+</Project>

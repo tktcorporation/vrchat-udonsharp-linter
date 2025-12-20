@@ -1,0 +1,37 @@
+name: Publish to NuGet
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '6.0.x'
+
+    - name: Extract version from tag
+      id: version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+    - name: Update version in csproj
+      run: |
+        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.version.outputs.VERSION }}<\/Version>/" src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj
+
+    - name: Restore dependencies
+      run: dotnet restore src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj
+
+    - name: Build
+      run: dotnet build src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj -c Release --no-restore
+
+    - name: Pack
+      run: dotnet pack src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj -c Release --no-build --output ./artifacts
+
+    - name: Push to NuGet
+      run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
