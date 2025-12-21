@@ -9,7 +9,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>udonsharp-lint</ToolCommandName>
     <PackageId>VRChat.UdonSharp.Linter</PackageId>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Authors>tktcorporation</Authors>
     <Description>A static analyzer and linter for VRChat UdonSharp scripts that detects common errors and unsupported features</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
