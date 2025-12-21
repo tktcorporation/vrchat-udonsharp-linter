@@ -8,7 +8,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
-namespace UdonSharpLinterCLI
+namespace tktco.UdonSharpLinter
 {
     /// <summary>
     /// README.md自動生成ツール

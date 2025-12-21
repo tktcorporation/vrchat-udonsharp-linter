@@ -12,8 +12,8 @@ const csprojPath = path.join(
   __dirname,
   '..',
   'src',
-  'VRChat.UdonSharp.Linter',
-  'VRChat.UdonSharp.Linter.csproj'
+  'tktco.UdonSharpLinter',
+  'tktco.UdonSharpLinter.csproj'
 );
 
 let csprojContent = fs.readFileSync(csprojPath, 'utf8');
