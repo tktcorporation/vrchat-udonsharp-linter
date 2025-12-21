@@ -53,6 +53,19 @@ Error codes are defined in `LintErrorCodes` class (Program.cs:309-337) and follo
 3. Call the check method from `LintFile()` or appropriate location
 4. Regenerate README.md with `--generate-readme`
 
+### File Filtering
+
+The linter automatically excludes:
+- `Temp`, `Library`, `obj`, `bin` directories
+- Editor scripts (`\Editor\` paths)
+- Test scripts when `--exclude-test-scripts` is used (`\TestScripts\`, `\Tests\`, `\Test\`)
+
+### UdonSharp Detection
+
+Only files containing both are analyzed:
+1. `using UdonSharp;` directive
+2. Class inheriting from `UdonSharpBehaviour`
+
 ## CI/CD
 
 - **readme-check.yml**: Validates README.md is up-to-date with source code on PRs
