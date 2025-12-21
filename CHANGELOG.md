@@ -1,5 +1,16 @@
 # vrchat-udonsharp-linter
 
+## 1.1.2
+
+### Patch Changes
+
+- 9380fc5: Move release logic to workflow YAML for better maintainability
+
+  - Remove separate release.js script
+  - Implement tag creation and GitHub Release directly in workflow
+  - Simplify package.json by removing release script
+  - All release logic now contained in release.yml
+
 ## 1.1.1
 
 ### Patch Changes
