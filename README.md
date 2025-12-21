@@ -31,6 +31,12 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Static Method Field Access (UDON021)
 - Udon Behaviour Serializable Class Usage (UDON025)
 
+## Installation
+
+```bash
+dotnet tool install -g tktco.UdonSharpLinter
+```
+
 ## Usage
 
 ```bash
@@ -71,13 +77,6 @@ This format is compatible with most IDEs and CI/CD tools.
 ## Requirements
 
 - .NET 6.0 or later
-- Unity project with UdonSharp
-
-## Build
-
-```bash
-dotnet build src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj
-```
 
 ## Integration Examples
 
@@ -90,14 +89,8 @@ dotnet build src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj
     {
       "label": "UdonSharp Lint",
       "type": "shell",
-      "command": "dotnet",
-      "args": [
-        "run",
-        "--project",
-        "src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj",
-        "--",
-        "${workspaceFolder}/Assets"
-      ],
+      "command": "udonsharp-lint",
+      "args": ["${workspaceFolder}/Assets"],
       "problemMatcher": {
         "owner": "udonsharp",
         "fileLocation": ["relative", "${workspaceFolder}"],
@@ -119,49 +112,16 @@ dotnet build src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj
 ### GitHub Actions
 
 ```yaml
+- name: Install UdonSharp Linter
+  run: dotnet tool install -g tktco.UdonSharpLinter
+
 - name: Run UdonSharp Linter
-  run: dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- Assets --exclude-test-scripts
+  run: udonsharp-lint Assets --exclude-test-scripts
 ```
 
 ### mise (mise.toml)
 
 ```toml
 [tasks.lint-udon]
-run = "dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- Assets"
-```
-
-## Implementation Details
-
-The linter uses Roslyn (Microsoft.CodeAnalysis.CSharp) for:
-- Syntax tree analysis for language feature restrictions
-- Semantic model analysis for cross-file type checking
-- Compilation-wide call graph analysis for static method validation
-
-### Excluded Files
-
-The linter automatically excludes:
-- Temp, Library, obj, bin directories
-- Editor scripts
-- Test scripts (when `--exclude-test-scripts` is used)
-
-### UdonSharp Detection
-
-Only files that contain both:
-1. `using UdonSharp;` directive
-2. `UdonSharpBehaviour` class inheritance
-
-are analyzed as UdonSharp scripts.
-
-## Generating This README
-
-This README is auto-generated from source code documentation. To regenerate:
-
-```bash
-dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- --generate-readme
-```
-
-Or using mise:
-
-```bash
-mise run generate-readme
+run = "udonsharp-lint Assets"
 ```
