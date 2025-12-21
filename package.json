@@ -1,11 +1,12 @@
 {
   "name": "vrchat-udonsharp-linter",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "A linter for VRChat UdonSharp",
   "scripts": {
     "changeset": "changeset",
-    "version": "changeset version && node scripts/update-csproj-version.js"
+    "version": "changeset version && node scripts/update-csproj-version.js",
+    "release": "node scripts/create-github-release.js"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1"

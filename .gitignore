@@ -8,3 +8,6 @@ artifacts/
 # Node.js
 node_modules/
 package-lock.json
+
+# Release
+.release-notes.tmp

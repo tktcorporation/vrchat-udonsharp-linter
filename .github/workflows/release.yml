@@ -7,73 +7,33 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
 jobs:
   release:
-    name: Create Release PR or Publish
+    name: Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      id-token: write
-
     steps:
-      - name: Checkout
+      - name: Checkout Repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "22"
+          cache: "npm"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: npm install
 
-      - name: Create Release Pull Request or Create Release
+      - name: Create Release Pull Request or Publish
         id: changesets
         uses: changesets/action@v1
         with:
           version: npm run version
-          commit: 'chore: version packages'
-          title: 'chore: version packages'
+          publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create GitHub Release
-        if: steps.changesets.outputs.published == 'true'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            const version = packageJson.version;
-
-            // Read CHANGELOG.md to get release notes
-            let releaseNotes = '';
-            try {
-              const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
-              const versionHeader = `## ${version}`;
-              const startIndex = changelog.indexOf(versionHeader);
-              if (startIndex !== -1) {
-                const endIndex = changelog.indexOf('\n## ', startIndex + 1);
-                releaseNotes = changelog.substring(
-                  startIndex + versionHeader.length,
-                  endIndex !== -1 ? endIndex : changelog.length
-                ).trim();
-              }
-            } catch (error) {
-              console.log('No CHANGELOG.md found or error reading it');
-            }
-
-            await github.rest.repos.createRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag_name: `v${version}`,
-              name: `v${version}`,
-              body: releaseNotes || `Release v${version}`,
-              draft: false,
-              prerelease: false
-            });
-
-            console.log(`Created release v${version}`);

@@ -38,14 +38,18 @@ If your PR doesn't need a release (e.g., documentation updates, CI changes), add
 
 ### How Releases Work
 
-1. When PRs with changesets are merged to `master`, a "Version Packages" PR is automatically created
-2. This PR updates:
+1. **Changesets Merged**: When PRs with changesets are merged to `master`, a "Version Packages" PR is automatically created by the release workflow
+2. **Version PR Updates**:
    - `package.json` version
-   - `.csproj` version
+   - `.csproj` version (via `scripts/update-csproj-version.js`)
    - `CHANGELOG.md`
-3. When the "Version Packages" PR is merged:
-   - A GitHub Release is created automatically
-   - The package is published to NuGet via OIDC authentication
+3. **Release Creation**: When the "Version Packages" PR is merged:
+   - A git tag is created (e.g., `v1.0.0`)
+   - A GitHub Release is created automatically with changelog notes
+4. **NuGet Publishing**: The GitHub Release triggers the `publish.yml` workflow:
+   - Builds the .NET project
+   - Authenticates to NuGet via OIDC
+   - Publishes the package to NuGet
 
 ### For Maintainers
 
