@@ -1,0 +1,10 @@
+[tools]
+python = "latest"
+# Unity 2022.3 requires .NET 6.0 SDK for development
+"vfox:version-fox/vfox-dotnet" = "6"
+
+[tasks.generate-readme]
+description = "Generate README.md for UdonSharpLinter from source code"
+run = """
+dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- --generate-readme
+"""

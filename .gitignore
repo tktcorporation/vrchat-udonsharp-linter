@@ -7,3 +7,6 @@ artifacts/
 
 # Node.js
 node_modules/
+
+# local settings
+settings.local.json
