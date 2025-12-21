@@ -2,8 +2,6 @@
 
 A static analyzer and linter for VRChat UdonSharp scripts that detects common errors and unsupported features at build time.
 
-> **Note:** This package was previously published as `VRChat.UdonSharp.Linter`. See [CHANGELOG.md](CHANGELOG.md) for migration instructions.
-
 ## Installation
 
 Install as a global .NET tool:

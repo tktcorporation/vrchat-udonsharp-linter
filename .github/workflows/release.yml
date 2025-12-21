@@ -64,19 +64,7 @@ jobs:
           fi
 
           # CHANGELOG.mdから該当バージョンのリリースノートを抽出
-          node -e "
-            const fs = require('fs');
-            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
-            const version = '$VERSION';
-            const regex = new RegExp(\`## \${version}[\\\\s\\\\S]*?(?=\\\\n## |$)\`, 'm');
-            const match = changelog.match(regex);
-            if (match) {
-              const notes = match[0].replace(/^## .*\\n/, '').trim();
-              fs.writeFileSync('.release-notes.md', notes, 'utf8');
-            } else {
-              fs.writeFileSync('.release-notes.md', '', 'utf8');
-            }
-          "
+          node scripts/extract-release-notes.js "$VERSION" > .release-notes.md
 
           # GitHub Release作成
           if [ -s .release-notes.md ]; then
