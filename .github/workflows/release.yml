@@ -47,13 +47,20 @@ jobs:
           PACKAGE_NAME=$(node -p "require('./package.json').name")
           TAG_NAME="v$VERSION"
 
-          # タグが既に存在するかチェック
-          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
-            echo "Tag $TAG_NAME already exists"
+          # リモートにタグが既に存在するかチェック
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG_NAME$"; then
+            echo "Tag $TAG_NAME already exists on remote, skipping tag creation"
           else
             echo "Creating tag $TAG_NAME..."
             git tag "$TAG_NAME"
             git push origin "$TAG_NAME"
+          fi
+
+          # GitHub Releaseが既に存在する場合はスキップ
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists, skipping release creation"
+            echo "published=true" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           # CHANGELOG.mdから該当バージョンのリリースノートを抽出
