@@ -42,7 +42,9 @@ namespace tktco.UdonSharpLinter
                 Environment.Exit(1);
             }
 
-            var readmePath = Path.Combine(Path.GetDirectoryName(programCsPath)!, "README.md");
+            // プロジェクトルート（Tools/UdonSharpLinter/）に README を生成
+            var projectRoot = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(programCsPath)!, "..", ".."));
+            var readmePath = Path.Combine(projectRoot, "README.md");
 
             Console.WriteLine($"[README Generator] Analyzing {programCsPath}...");
 
