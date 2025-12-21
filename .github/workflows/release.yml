@@ -56,8 +56,28 @@ jobs:
             git push origin "$TAG_NAME"
           fi
 
+          # CHANGELOG.mdから該当バージョンのリリースノートを抽出
+          node -e "
+            const fs = require('fs');
+            const changelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+            const version = '$VERSION';
+            const regex = new RegExp(\`## \${version}[\\\\s\\\\S]*?(?=\\\\n## |$)\`, 'm');
+            const match = changelog.match(regex);
+            if (match) {
+              const notes = match[0].replace(/^## .*\\n/, '').trim();
+              fs.writeFileSync('.release-notes.md', notes, 'utf8');
+            } else {
+              fs.writeFileSync('.release-notes.md', '', 'utf8');
+            }
+          "
+
           # GitHub Release作成
-          gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
+          if [ -s .release-notes.md ]; then
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --notes-file .release-notes.md
+          else
+            gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
+          fi
+          rm -f .release-notes.md
 
           # NuGet公開トリガー
           echo "published=true" >> $GITHUB_OUTPUT
