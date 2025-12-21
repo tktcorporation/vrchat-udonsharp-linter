@@ -5,8 +5,7 @@
   "description": "A linter for VRChat UdonSharp",
   "scripts": {
     "changeset": "changeset",
-    "version": "changeset version && node scripts/update-csproj-version.js",
-    "release": "changeset tag"
+    "version": "changeset version && node scripts/update-csproj-version.js"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1"

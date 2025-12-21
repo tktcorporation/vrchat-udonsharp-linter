@@ -34,35 +34,57 @@ jobs:
         uses: changesets/action@v1
         with:
           version: npm run version
-          publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Create tag and trigger publish
+        if: steps.changesets.outputs.hasChangesets == 'false' && steps.changesets.outputs.pullRequestNumber == ''
+        id: release
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          TAG_NAME="v$VERSION"
+
+          # タグが既に存在するかチェック
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Tag $TAG_NAME already exists"
+          else
+            echo "Creating tag $TAG_NAME..."
+            git tag "$TAG_NAME"
+            git push origin "$TAG_NAME"
+          fi
+
+          # GitHub Release作成
+          gh release create "$TAG_NAME" --title "$TAG_NAME" --generate-notes
+
+          # NuGet公開トリガー
+          echo "published=true" >> $GITHUB_OUTPUT
+
       - name: Setup .NET
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.release.outputs.published == 'true'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '6.0.x'
 
       - name: Restore dependencies
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.release.outputs.published == 'true'
         run: dotnet restore src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj
 
       - name: Build
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.release.outputs.published == 'true'
         run: dotnet build src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj -c Release --no-restore
 
       - name: Pack
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.release.outputs.published == 'true'
         run: dotnet pack src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj -c Release --no-build --output ./artifacts
 
       - name: NuGet login (OIDC)
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.release.outputs.published == 'true'
         uses: NuGet/login@v1
         id: nuget-login
         with:
           user: ${{ github.repository_owner }}
 
       - name: Push to NuGet
-        if: steps.changesets.outputs.published == 'true'
+        if: steps.release.outputs.published == 'true'
         run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
