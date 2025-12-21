@@ -37,3 +37,32 @@ jobs:
           publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup .NET
+        if: steps.changesets.outputs.published == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Restore dependencies
+        if: steps.changesets.outputs.published == 'true'
+        run: dotnet restore src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj
+
+      - name: Build
+        if: steps.changesets.outputs.published == 'true'
+        run: dotnet build src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj -c Release --no-restore
+
+      - name: Pack
+        if: steps.changesets.outputs.published == 'true'
+        run: dotnet pack src/VRChat.UdonSharp.Linter/VRChat.UdonSharp.Linter.csproj -c Release --no-build --output ./artifacts
+
+      - name: NuGet login (OIDC)
+        if: steps.changesets.outputs.published == 'true'
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ github.repository_owner }}
+
+      - name: Push to NuGet
+        if: steps.changesets.outputs.published == 'true'
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

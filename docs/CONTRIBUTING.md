@@ -43,13 +43,12 @@ If your PR doesn't need a release (e.g., documentation updates, CI changes), add
    - `package.json` version
    - `.csproj` version (via `scripts/update-csproj-version.js`)
    - `CHANGELOG.md`
-3. **Release Creation**: When the "Version Packages" PR is merged:
-   - A git tag is created (e.g., `v1.0.0`)
-   - A GitHub Release is created automatically with changelog notes
-4. **NuGet Publishing**: The GitHub Release triggers the `publish.yml` workflow:
+3. **Release and Publish**: When the "Version Packages" PR is merged, the `release.yml` workflow:
+   - Creates a git tag (e.g., `v1.0.0`)
+   - Creates a GitHub Release automatically with changelog notes
    - Builds the .NET project
    - Authenticates to NuGet via OIDC
-   - Publishes the package to NuGet
+   - Publishes the package to NuGet automatically
 
 ### For Maintainers
 
