@@ -25,9 +25,17 @@ namespace UdonSharpLinterCLI
 
         static int Main(string[] args)
         {
+            // README生成モード
+            if (args.Length > 0 && args[0] == "--generate-readme")
+            {
+                READMEGenerator.Generate();
+                return 0;
+            }
+
             if (args.Length == 0)
             {
                 Console.WriteLine("Usage: udonsharp-lint <directory_path> [--exclude-test-scripts]");
+                Console.WriteLine("       udonsharp-lint --generate-readme");
                 return 1;
             }
 
