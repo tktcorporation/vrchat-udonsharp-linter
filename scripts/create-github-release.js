@@ -11,13 +11,24 @@ async function createRelease() {
     const version = packageJson.version;
     const tagName = `v${version}`;
 
-    // Check if tag already exists
+    // Check if tag already exists locally
     try {
       execSync(`git rev-parse ${tagName}`, { stdio: 'ignore' });
-      console.log(`Tag ${tagName} already exists. Skipping release creation.`);
+      console.log(`Tag ${tagName} already exists locally. Skipping release creation.`);
       return;
     } catch (error) {
-      // Tag doesn't exist, continue with release creation
+      // Tag doesn't exist locally
+    }
+
+    // Check if tag already exists on remote
+    try {
+      const remoteTag = execSync(`git ls-remote --tags origin ${tagName}`, { encoding: 'utf8' });
+      if (remoteTag.trim()) {
+        console.log(`Tag ${tagName} already exists on remote. Skipping release creation.`);
+        return;
+      }
+    } catch (error) {
+      // Tag doesn't exist on remote
     }
 
     // Read CHANGELOG.md to get release notes
