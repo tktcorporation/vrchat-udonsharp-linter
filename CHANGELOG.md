@@ -1,5 +1,16 @@
 # tktco-udonsharp-linter
 
+## 0.1.1
+
+### Patch Changes
+
+- [`0ce0fc6`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/0ce0fc63bb790a1e24209259a3fd515bee00b642) Thanks [@tktcorporation](https://github.com/tktcorporation)! - リリースワークフローの改善
+
+  - GitHub Release の description に CHANGELOG.md の内容を使用するように変更
+  - @changesets/changelog-github を導入し、PR リンク・コミットリンク・貢献者表記付きのリッチなリリースノートを生成
+  - タグ存在チェックをリモート対応に修正（`git rev-parse` → `git ls-remote`）
+  - GitHub Release が既に存在する場合はスキップするように改善
+
 ## 0.1.0
 
 ### Breaking Changes
