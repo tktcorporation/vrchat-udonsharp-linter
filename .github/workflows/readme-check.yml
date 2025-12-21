@@ -1,0 +1,39 @@
+name: Check README is up-to-date
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'src/tktco.UdonSharpLinter/Program.cs'
+      - 'src/tktco.UdonSharpLinter/READMEGenerator.cs'
+      - 'README.md'
+      - '.github/workflows/readme-check.yml'
+
+jobs:
+  check-readme:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Generate README
+        run: |
+          dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- --generate-readme
+
+      - name: Check for differences
+        run: |
+          if ! git diff --exit-code README.md; then
+            echo "::error::README.md is not up-to-date with source code."
+            echo "::error::Please run the following command to regenerate:"
+            echo "::error::  dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- --generate-readme"
+            echo "::error::Or using mise:"
+            echo "::error::  mise run generate-readme"
+            exit 1
+          fi
+          echo "✓ README.md is up-to-date"

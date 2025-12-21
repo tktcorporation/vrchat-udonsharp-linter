@@ -1,89 +1,167 @@
-# tktco UdonSharp Linter
+# UdonSharpLinterCLI
 
-A static analyzer and linter for VRChat UdonSharp scripts that detects common errors and unsupported features at build time.
+A static code analyzer for UdonSharp scripts in VRChat projects. This tool detects language features and patterns that are not supported by UdonSharp at compile time.
 
-## Installation
+## Features
 
-Install as a global .NET tool:
+UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, including:
 
-```bash
-dotnet tool install -g tktco.UdonSharpLinter
-```
+### Basic Language Features
+- Collection initializers (UDON008)
+- Constructors (UDON005)
+- Generic classes (UDON006, UDON018)
+- Generic methods (UDON006, UDON018)
+- Local functions (UDON003)
+- Multidimensional arrays (UDON009)
+- Nested types (UDON012)
+- Object initializers (UDON007)
+- Static fields (UDON011, UDON021)
+- Throw statements (UDON002)
+- Try Catch statements (UDON001)
+
+### API and Attribute Restrictions
+- Interfaces (UDON017)
+- Method Overloads (UDON016)
+- Network Callable methods (UDON013)
+- Text Mesh Pro APIs (UDON014)
+
+### Cross-file and Semantic Analysis
+- Cross File Field Access (UDON020)
+- Cross File Method Invocation (UDON022)
+- Static Method Field Access (UDON021)
+- Udon Behaviour Serializable Class Usage (UDON025)
 
 ## Usage
 
 ```bash
-# Lint all UdonSharp scripts in a directory
-udonsharp-lint ./Assets/UdonSharp
-
-# Exclude test scripts
-udonsharp-lint ./Assets/UdonSharp --exclude-test-scripts
+UdonSharpLinterCLI <directory_path> [--exclude-test-scripts]
 ```
 
-## Features
+### Arguments
 
-Detects 20+ UdonSharp restrictions including:
-- Try/Catch/Finally statements
-- Throw statements
-- Local functions
-- Object/Collection initializers
-- Multidimensional arrays
-- Constructors
-- Generic methods/classes
-- Static fields (except const)
-- Nested types
-- Properties (except with FieldChangeCallback)
-- Method overloads
-- Interface implementations
-- Cross-file field access on custom serializable classes
-- Cross-file method invocations on custom serializable classes
-- TextMeshPro unexposed APIs (warnings)
-- Reflection, Threading, File I/O, and Network APIs
-- And more...
+- `<directory_path>`: Path to the directory containing UdonSharp scripts to analyze
+- `--exclude-test-scripts`: (Optional) Exclude scripts in TestScripts, Tests, or Test directories
 
-## Error Codes
+### Examples
 
-The linter uses error codes in the format `UDONXXX`:
+```bash
+# Analyze all UdonSharp scripts in Assets
+UdonSharpLinterCLI Assets
 
-- `UDON001`: Try/Catch/Finally statements
-- `UDON002`: Throw statements
-- `UDON003`: Local functions
-- `UDON005`: Constructors
-- `UDON006`: Generic methods
-- `UDON007`: Object initializers
-- `UDON008`: Collection initializers
-- `UDON009`: Multidimensional arrays
-- `UDON011`: Static fields
-- `UDON012`: Nested types
-- `UDON013`: NetworkCallable method restrictions
-- `UDON014`: TextMeshPro API (warning)
-- `UDON015`: Properties
-- `UDON016`: Method overloads
-- `UDON017`: Interface implementation
-- `UDON018`: Generic classes
-- `UDON019`: Unexposed APIs
-- `UDON020`: Cross-file field access
-- `UDON021`: Static method field access
-- `UDON022`: Cross-file method invocation
-- `UDON025`: System.Serializable class usage
+# Analyze excluding test scripts
+UdonSharpLinterCLI Assets --exclude-test-scripts
+```
+
+## Output Format
+
+The tool outputs errors and warnings in a standard compiler format:
+
+```
+path/to/file.cs(line,column): error UDON###: Error message
+path/to/file.cs(line,column): warning UDON###: Warning message
+```
+
+This format is compatible with most IDEs and CI/CD tools.
 
 ## Exit Codes
 
-- `0`: No errors found
-- `1`: Errors detected or invalid usage
+- `0`: No errors found (warnings may be present)
+- `1`: Errors found or execution failed
 
-## CI/CD Integration
+## Requirements
+
+- .NET 6.0 or later
+- Unity project with UdonSharp
+
+## Build
+
+```bash
+dotnet build
+```
+
+## Integration Examples
+
+### Visual Studio Code (tasks.json)
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "UdonSharp Lint",
+      "type": "shell",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj",
+        "--",
+        "${workspaceFolder}/Assets"
+      ],
+      "problemMatcher": {
+        "owner": "udonsharp",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^(.+)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+UDON(\\d+):\\s+(.+)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      }
+    }
+  ]
+}
+```
 
 ### GitHub Actions
 
 ```yaml
-- name: Install UdonSharp Linter
-  run: dotnet tool install -g tktco.UdonSharpLinter
-
-- name: Run Linter
-  run: udonsharp-lint ./Assets/Scripts
+- name: Run UdonSharp Linter
+  run: dotnet run --project Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj -- Assets --exclude-test-scripts
 ```
 
-## License
+### mise (mise.toml)
 
-MIT
+```toml
+[tasks."lint-udon"]
+run = "dotnet run --project Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj -- Assets"
+```
+
+## Implementation Details
+
+The linter uses Roslyn (Microsoft.CodeAnalysis.CSharp) for:
+- Syntax tree analysis for language feature restrictions
+- Semantic model analysis for cross-file type checking
+- Compilation-wide call graph analysis for static method validation
+
+### Excluded Files
+
+The linter automatically excludes:
+- Temp, Library, obj, bin directories
+- Editor scripts
+- Test scripts (when `--exclude-test-scripts` is used)
+
+### UdonSharp Detection
+
+Only files that contain both:
+1. `using UdonSharp;` directive
+2. `UdonSharpBehaviour` class inheritance
+
+are analyzed as UdonSharp scripts.
+
+## Generating This README
+
+This README is auto-generated from source code documentation. To regenerate:
+
+```bash
+dotnet run --project Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj --generate-readme
+```
+
+Or using mise:
+
+```bash
+mise run generate-readme
+```
