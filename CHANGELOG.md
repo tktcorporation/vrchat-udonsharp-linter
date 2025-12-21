@@ -1,5 +1,13 @@
 # tktco-udonsharp-linter
 
+## 0.1.3
+
+### Patch Changes
+
+- [#6](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/6) [`31ad523`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/31ad5234142201496daa7280d2c6e83a1feefc51) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Add CI check to validate README is up-to-date with auto-generated content
+
+- [#8](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/8) [`0a3ef3c`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/0a3ef3c225f39b71b735b74ce3000da09cc13801) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Fix incorrect paths and command names in README documentation
+
 ## 0.1.2
 
 ### Patch Changes
