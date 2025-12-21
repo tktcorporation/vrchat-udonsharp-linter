@@ -34,7 +34,7 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 ## Usage
 
 ```bash
-UdonSharpLinterCLI <directory_path> [--exclude-test-scripts]
+udonsharp-lint <directory_path> [--exclude-test-scripts]
 ```
 
 ### Arguments
@@ -46,10 +46,10 @@ UdonSharpLinterCLI <directory_path> [--exclude-test-scripts]
 
 ```bash
 # Analyze all UdonSharp scripts in Assets
-UdonSharpLinterCLI Assets
+udonsharp-lint Assets
 
 # Analyze excluding test scripts
-UdonSharpLinterCLI Assets --exclude-test-scripts
+udonsharp-lint Assets --exclude-test-scripts
 ```
 
 ## Output Format
@@ -76,7 +76,7 @@ This format is compatible with most IDEs and CI/CD tools.
 ## Build
 
 ```bash
-dotnet build
+dotnet build src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj
 ```
 
 ## Integration Examples
@@ -94,7 +94,7 @@ dotnet build
       "args": [
         "run",
         "--project",
-        "Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj",
+        "src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj",
         "--",
         "${workspaceFolder}/Assets"
       ],
@@ -120,14 +120,14 @@ dotnet build
 
 ```yaml
 - name: Run UdonSharp Linter
-  run: dotnet run --project Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj -- Assets --exclude-test-scripts
+  run: dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- Assets --exclude-test-scripts
 ```
 
 ### mise (mise.toml)
 
 ```toml
-[tasks."lint-udon"]
-run = "dotnet run --project Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj -- Assets"
+[tasks.lint-udon]
+run = "dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- Assets"
 ```
 
 ## Implementation Details
@@ -157,7 +157,7 @@ are analyzed as UdonSharp scripts.
 This README is auto-generated from source code documentation. To regenerate:
 
 ```bash
-dotnet run --project Tools/UdonSharpLinterCLI/UdonSharpLinterCLI.csproj --generate-readme
+dotnet run --project src/tktco.UdonSharpLinter/tktco.UdonSharpLinter.csproj -- --generate-readme
 ```
 
 Or using mise:
