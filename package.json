@@ -6,7 +6,7 @@
   "scripts": {
     "changeset": "changeset",
     "version": "changeset version && node scripts/update-csproj-version.js",
-    "release": "node scripts/create-github-release.js"
+    "release": "changeset tag"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.1"
