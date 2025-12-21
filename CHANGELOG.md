@@ -1,5 +1,15 @@
 # tktco-udonsharp-linter
 
+## 0.1.2
+
+### Patch Changes
+
+- [`c3dfc54`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/c3dfc5466881a1d9fedaf3d8bf1ce33f5845c07e) Thanks [@tktcorporation](https://github.com/tktcorporation)! - リリースノート抽出処理の修正
+
+  - インライン Node.js コードを外部スクリプト（scripts/extract-release-notes.js）に移動
+  - 正規表現のエスケープ問題を解決し、CHANGELOG.md からの抽出が正しく動作するように修正
+  - README から旧パッケージ（VRChat.UdonSharp.Linter）に関する注記を削除
+
 ## 0.1.1
 
 ### Patch Changes
