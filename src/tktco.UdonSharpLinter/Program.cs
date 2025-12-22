@@ -208,7 +208,8 @@ namespace tktco.UdonSharpLinter
                 CheckNetworkCallableMethods(root, filePath, errors);
                 CheckTextMeshProAPIs(root, filePath, errors);
                 CheckGeneralUnexposedAPIs(root, filePath, errors);
-                CheckProperties(root, filePath, errors);
+                // Note: Properties are now supported in UdonSharp 1.0+
+                // CheckProperties(root, filePath, errors);
                 CheckMethodOverloads(root, filePath, errors);
                 CheckInterfaces(root, filePath, errors);
                 CheckCrossFileFieldAccess(root, filePath, errors, compilation);
@@ -216,7 +217,8 @@ namespace tktco.UdonSharpLinter
                 CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
                 CheckSendCustomEventMethods(root, filePath, errors, compilation);
                 CheckNullConditionalOperators(root, filePath, errors);
-                CheckNullCoalescingOperators(root, filePath, errors);
+                // Note: Null coalescing operator (??) is now supported in UdonSharp
+                // CheckNullCoalescingOperators(root, filePath, errors);
                 CheckAsyncAwait(root, filePath, errors);
                 CheckGotoStatements(root, filePath, errors);
 
@@ -310,6 +312,8 @@ namespace tktco.UdonSharpLinter
         /// Note: Some numbers are skipped (reserved for future use or removed checks)
         /// - 4, 10: Reserved for future use
         /// - 23, 24: Removed (replaced by UDON025)
+        /// - 15: Removed - Properties are now supported in UdonSharp 1.0+
+        /// - 28: Removed - Null coalescing operator (??) is now supported in UdonSharp
         ///
         /// Error code ranges:
         /// - 1-12, 18: Basic language feature restrictions
@@ -336,6 +340,8 @@ namespace tktco.UdonSharpLinter
             public const int NetworkCallable = 13;
             public const int TextMeshProAPI = 14;
             public const int UnexposedAPI = 19;
+            // Note: Property (15) is no longer used - Properties are now supported in UdonSharp 1.0+
+            [Obsolete("Properties are now supported in UdonSharp 1.0+")]
             public const int Property = 15;
             public const int MethodOverload = 16;
             public const int Interface = 17;
@@ -349,6 +355,8 @@ namespace tktco.UdonSharpLinter
             // Additional language feature restrictions
             public const int SendCustomEventMethodNotFound = 26;
             public const int NullConditionalOperator = 27;
+            // Note: NullCoalescingOperator (28) is no longer used - ?? is now supported in UdonSharp
+            [Obsolete("Null coalescing operator (??) is now supported in UdonSharp")]
             public const int NullCoalescingOperator = 28;
             public const int AsyncAwait = 29;
             public const int GotoStatement = 30;
@@ -902,16 +910,14 @@ namespace tktco.UdonSharpLinter
         }
 
         /// <summary>
-        /// UdonSharp制約: 自動プロパティと通常のプロパティは使用できません
+        /// [DEPRECATED - UdonSharp 1.0+でサポート] プロパティは使用可能になりました
         ///
-        /// UdonSharpBehaviourでは、C#の自動プロパティ（{ get; set; }）や
-        /// 通常のプロパティ（getterとsetterを持つもの）は使用できません。
-        /// 例外として、[FieldChangeCallback]属性と組み合わせたプロパティのみ許可されます。
+        /// UdonSharp 1.0以降、C#のプロパティ（自動プロパティおよび通常のプロパティ）がサポートされています。
+        /// [FieldChangeCallback]属性と組み合わせることで、ネットワーク同期時のセッター呼び出しも可能です。
         ///
         /// 例:
-        /// NG: public int MyValue { get; set; }
-        /// NG: public int MyValue { get { return _value; } set { _value = value; } }
-        /// OK: public int myValue; // 通常のフィールド
+        /// OK: public int MyValue { get; set; }
+        /// OK: public int MyValue { get { return _value; } set { _value = value; } }
         /// OK: [FieldChangeCallback(nameof(SyncedValue))] private int _syncedValue;
         ///     public int SyncedValue { get => _syncedValue; set { _syncedValue = value; } }
         /// </summary>
@@ -1720,16 +1726,14 @@ namespace tktco.UdonSharpLinter
         }
 
         /// <summary>
-        /// UdonSharp制約: null合体演算子 (??, ??=) は使用できません
+        /// [DEPRECATED - UdonSharpでサポート] null合体演算子 (??, ??=) は使用可能です
         ///
-        /// Udonではnull合体演算子（??）およびnull合体代入演算子（??=）がサポートされていません。
-        /// 代わりに、明示的なnullチェックと条件分岐を使用する必要があります。
+        /// UdonSharpの公式ドキュメントによると、null合体演算子（??）はサポートされています。
+        /// 参照: https://udonsharp.docs.vrchat.com/
         ///
         /// 例:
-        /// NG: string name = playerName ?? "Guest";
-        /// NG: playerName ??= "Guest";
-        /// OK: string name = playerName != null ? playerName : "Guest";
-        /// OK: if (playerName == null) playerName = "Guest";
+        /// OK: string name = playerName ?? "Guest";
+        /// OK: playerName ??= "Guest";
         /// </summary>
         private static void CheckNullCoalescingOperators(SyntaxNode root, string filePath, List<LintError> errors)
         {
@@ -1892,7 +1896,8 @@ namespace tktco.UdonSharpLinter
             CheckNetworkCallableMethods(root, filePath, errors);
             CheckTextMeshProAPIs(root, filePath, errors);
             CheckGeneralUnexposedAPIs(root, filePath, errors);
-            CheckProperties(root, filePath, errors);
+            // Note: Properties are now supported in UdonSharp 1.0+
+            // CheckProperties(root, filePath, errors);
             CheckMethodOverloads(root, filePath, errors);
             CheckInterfaces(root, filePath, errors);
             CheckCrossFileFieldAccess(root, filePath, errors, compilation);
@@ -1900,7 +1905,8 @@ namespace tktco.UdonSharpLinter
             CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
             CheckSendCustomEventMethods(root, filePath, errors, compilation);
             CheckNullConditionalOperators(root, filePath, errors);
-            CheckNullCoalescingOperators(root, filePath, errors);
+            // Note: Null coalescing operator (??) is now supported in UdonSharp
+            // CheckNullCoalescingOperators(root, filePath, errors);
             CheckAsyncAwait(root, filePath, errors);
             CheckGotoStatements(root, filePath, errors);
 

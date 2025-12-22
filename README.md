@@ -16,7 +16,6 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Local functions (UDON003)
 - Multidimensional arrays (UDON009)
 - Nested types (UDON012)
-- Null Coalescing Operators (UDON028)
 - Null Conditional Operators (UDON027)
 - Object initializers (UDON007)
 - Static fields (UDON011)
@@ -28,7 +27,6 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Interfaces (UDON017)
 - Method Overloads (UDON016)
 - Network Callable methods (UDON013)
-- Properties (UDON015)
 - Send Custom Event methods (UDON026)
 - Text Mesh Pro APIs (UDON014)
 

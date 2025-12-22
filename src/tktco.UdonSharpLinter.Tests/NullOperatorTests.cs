@@ -88,10 +88,13 @@ public class TestBehaviour : UdonSharpBehaviour
 
     #endregion
 
-    #region Null Coalescing Operator (??)
+    #region Null Coalescing Operator (??) - Now Supported in UdonSharp
+
+    // Note: Null coalescing operators (?? and ??=) are now supported in UdonSharp 1.0+
+    // These tests verify that no errors are reported for these operators
 
     [Fact]
-    public void NullCoalescing_BasicUsage_ReportsError()
+    public void NullCoalescing_BasicUsage_NoError()
     {
         var code = @"
 using UdonSharp;
@@ -106,11 +109,12 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 }";
         var errors = Program.AnalyzeCode(code);
-        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.NullCoalescingOperator);
+        // Null coalescing is now supported, so no error should be reported
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.NullCoalescingOperator);
     }
 
     [Fact]
-    public void NullCoalescing_ChainedUsage_ReportsError()
+    public void NullCoalescing_ChainedUsage_NoError()
     {
         var code = @"
 using UdonSharp;
@@ -126,11 +130,12 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 }";
         var errors = Program.AnalyzeCode(code);
-        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.NullCoalescingOperator);
+        // Null coalescing is now supported, so no error should be reported
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.NullCoalescingOperator);
     }
 
     [Fact]
-    public void NullCoalescingAssignment_ReportsError()
+    public void NullCoalescingAssignment_NoError()
     {
         var code = @"
 using UdonSharp;
@@ -145,7 +150,8 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 }";
         var errors = Program.AnalyzeCode(code);
-        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.NullCoalescingOperator);
+        // Null coalescing assignment is now supported, so no error should be reported
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.NullCoalescingOperator);
     }
 
     [Fact]
