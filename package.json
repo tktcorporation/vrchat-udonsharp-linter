@@ -1,5 +1,5 @@
 {
-  "name": "tktco-udonsharp-linter",
+  "name": "tktco.UdonSharpLinter",
   "version": "0.1.3",
   "private": true,
   "description": "A linter for VRChat UdonSharp",

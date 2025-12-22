@@ -1,4 +1,4 @@
-# tktco-udonsharp-linter
+# tktco.UdonSharpLinter
 
 ## 0.1.3
 
