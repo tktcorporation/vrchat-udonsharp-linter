@@ -28,7 +28,7 @@ namespace tktco.UdonSharpLinter
             public string MethodName { get; set; } = "";
             public string Summary { get; set; } = "";
             public string Description { get; set; } = "";
-            public List<int> ErrorCodes { get; set; } = new List<int>();
+            public List<string> ErrorCodeNames { get; set; } = new List<string>();
         }
 
         public static void Generate()
@@ -60,6 +60,28 @@ namespace tktco.UdonSharpLinter
 
             // カテゴリ別に分類
             var categorizedMethods = CategorizeCheckMethods(checkMethods, errorCodes);
+
+            // 未分類のチェックメソッドがあればエラー
+            var categorizedMethodNames = categorizedMethods.Values
+                .SelectMany(m => m)
+                .Select(m => m.MethodName)
+                .ToHashSet();
+            var uncategorizedMethods = checkMethods
+                .Where(m => !categorizedMethodNames.Contains(m.MethodName))
+                .ToList();
+
+            if (uncategorizedMethods.Any())
+            {
+                Console.Error.WriteLine("[README Generator] Error: The following Check methods are not categorized:");
+                foreach (var method in uncategorizedMethods)
+                {
+                    var codeNames = method.ErrorCodeNames;
+                    var codeStr = codeNames.Any() ? $" (uses: {string.Join(", ", codeNames)})" : " (no LintErrorCodes found)";
+                    Console.Error.WriteLine($"  - {method.MethodName}{codeStr}");
+                }
+                Console.Error.WriteLine("[README Generator] Please add the error code names to the category HashSets in CategorizeCheckMethods()");
+                Environment.Exit(1);
+            }
 
             // READMEを生成
             var readme = GenerateREADME(errorCodes, categorizedMethods);
@@ -140,7 +162,7 @@ namespace tktco.UdonSharpLinter
             foreach (var method in checkMethods)
             {
                 var docComment = ExtractDocComment(method);
-                var errorCodes = ExtractErrorCodesFromMethod(method);
+                var errorCodeNames = ExtractErrorCodeNamesFromMethod(method, root);
 
                 if (!string.IsNullOrEmpty(docComment))
                 {
@@ -151,7 +173,7 @@ namespace tktco.UdonSharpLinter
                         MethodName = method.Identifier.Text,
                         Summary = summary,
                         Description = description,
-                        ErrorCodes = errorCodes
+                        ErrorCodeNames = errorCodeNames
                     });
                 }
             }
@@ -222,23 +244,50 @@ namespace tktco.UdonSharpLinter
             return (summary, description);
         }
 
-        private static List<int> ExtractErrorCodesFromMethod(MethodDeclarationSyntax method)
+        private static List<string> ExtractErrorCodeNamesFromMethod(MethodDeclarationSyntax method, SyntaxNode root)
         {
-            var errorCodes = new List<int>();
+            var errorCodeNames = new HashSet<string>();
 
-            // LintErrorCodes.XXX の参照を探す
-            var memberAccesses = method.DescendantNodes()
+            // メソッド本体から直接使用しているLintErrorCodes.XXXを抽出
+            var directCodes = method.DescendantNodes()
                 .OfType<MemberAccessExpressionSyntax>()
-                .Where(m => m.Expression.ToString() == "LintErrorCodes");
+                .Where(m => m.Expression.ToString() == "LintErrorCodes")
+                .Select(m => m.Name.ToString());
 
-            foreach (var access in memberAccesses)
+            foreach (var code in directCodes)
             {
-                var memberName = access.Name.ToString();
-                // コード名からコード番号を推測（実際の値は ExtractErrorCodes で取得済み）
-                errorCodes.Add(0); // プレースホルダー
+                errorCodeNames.Add(code);
             }
 
-            return errorCodes.Distinct().ToList();
+            // 呼び出している他のメソッドからもエラーコードを抽出（1階層のみ）
+            var invokedMethodNames = method.DescendantNodes()
+                .OfType<InvocationExpressionSyntax>()
+                .Select(inv => inv.Expression)
+                .OfType<IdentifierNameSyntax>()
+                .Select(id => id.Identifier.Text)
+                .Distinct();
+
+            foreach (var invokedName in invokedMethodNames)
+            {
+                var invokedMethod = root.DescendantNodes()
+                    .OfType<MethodDeclarationSyntax>()
+                    .FirstOrDefault(m => m.Identifier.Text == invokedName);
+
+                if (invokedMethod != null)
+                {
+                    var childCodes = invokedMethod.DescendantNodes()
+                        .OfType<MemberAccessExpressionSyntax>()
+                        .Where(m => m.Expression.ToString() == "LintErrorCodes")
+                        .Select(m => m.Name.ToString());
+
+                    foreach (var code in childCodes)
+                    {
+                        errorCodeNames.Add(code);
+                    }
+                }
+            }
+
+            return errorCodeNames.ToList();
         }
 
         private static Dictionary<string, List<CheckMethodInfo>> CategorizeCheckMethods(
@@ -252,24 +301,37 @@ namespace tktco.UdonSharpLinter
                 { "Cross-file and Semantic Analysis", new List<CheckMethodInfo>() }
             };
 
-            // エラーコードの範囲でカテゴリ分け
-            var basicFeatures = new[] { 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 18 };
-            var apiRestrictions = new[] { 13, 14, 15, 16, 17, 19 };
-            var semanticAnalysis = new[] { 20, 21, 22, 25 };
+            // エラーコード名でカテゴリ分け（メソッド本体から抽出したLintErrorCodes.XXXを使用）
+            var basicFeatures = new HashSet<string>
+            {
+                "TryCatch", "Throw", "LocalFunction", "Constructor", "GenericMethod",
+                "ObjectInitializer", "CollectionInitializer", "MultidimensionalArray",
+                "StaticField", "NestedType", "GenericClass",
+                "NullConditionalOperator", "NullCoalescingOperator", "AsyncAwait", "GotoStatement"
+            };
+            var apiRestrictions = new HashSet<string>
+            {
+                "NetworkCallable", "TextMeshProAPI", "Property", "MethodOverload",
+                "Interface", "UnexposedAPI", "SendCustomEventMethodNotFound"
+            };
+            var semanticAnalysis = new HashSet<string>
+            {
+                "CrossFileFieldAccess", "StaticMethodFieldAccess",
+                "CrossFileMethodInvocation", "UdonBehaviourSerializableClassUsage"
+            };
 
             foreach (var method in methods)
             {
-                var methodErrorCodes = ExtractErrorCodeNumbers(method.MethodName, errorCodes);
-
-                if (methodErrorCodes.Any(c => basicFeatures.Contains(c)))
+                // メソッド本体から抽出したエラーコード名を使用
+                if (method.ErrorCodeNames.Any(name => basicFeatures.Contains(name)))
                 {
                     categories["Basic Language Features"].Add(method);
                 }
-                else if (methodErrorCodes.Any(c => apiRestrictions.Contains(c)))
+                else if (method.ErrorCodeNames.Any(name => apiRestrictions.Contains(name)))
                 {
                     categories["API and Attribute Restrictions"].Add(method);
                 }
-                else if (methodErrorCodes.Any(c => semanticAnalysis.Contains(c)))
+                else if (method.ErrorCodeNames.Any(name => semanticAnalysis.Contains(name)))
                 {
                     categories["Cross-file and Semantic Analysis"].Add(method);
                 }
@@ -301,24 +363,6 @@ namespace tktco.UdonSharpLinter
             return description;
         }
 
-        private static List<int> ExtractErrorCodeNumbers(string methodName, Dictionary<int, ErrorCodeInfo> errorCodes)
-        {
-            // メソッド名からエラーコード名を推測
-            // CheckTryCatchStatements -> TryCatch -> errorCodes.Values.First(e => e.Name == "TryCatch").Code
-
-            var methodBaseName = methodName.Replace("Check", "");
-            methodBaseName = Regex.Replace(methodBaseName, "(Statements|Methods|Fields|Types|Classes|APIs|Initializers|Arrays)", "");
-            methodBaseName = methodBaseName.Trim();
-
-            var matchingCodes = errorCodes.Values
-                .Where(e => e.Name.Contains(methodBaseName, StringComparison.OrdinalIgnoreCase) ||
-                           methodBaseName.Contains(e.Name, StringComparison.OrdinalIgnoreCase))
-                .Select(e => e.Code)
-                .ToList();
-
-            return matchingCodes;
-        }
-
         private static string GenerateREADME(
             Dictionary<int, ErrorCodeInfo> errorCodes,
             Dictionary<string, List<CheckMethodInfo>> categorizedMethods)
@@ -345,7 +389,14 @@ namespace tktco.UdonSharpLinter
 
                 foreach (var method in category.Value.OrderBy(m => m.MethodName))
                 {
-                    var codes = ExtractErrorCodeNumbers(method.MethodName, errorCodes);
+                    // エラーコード名からエラーコード番号を取得
+                    var codes = method.ErrorCodeNames
+                        .Select(name => errorCodes.Values.FirstOrDefault(e => e.Name == name)?.Code)
+                        .Where(c => c.HasValue)
+                        .Select(c => c!.Value)
+                        .Distinct()
+                        .OrderBy(c => c)
+                        .ToList();
                     var codeStr = codes.Any() ? $" (UDON{string.Join(", UDON", codes.Select(c => c.ToString("D3")))})" : "";
 
                     // 英語の説明を生成
