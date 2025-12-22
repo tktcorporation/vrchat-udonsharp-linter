@@ -59,15 +59,15 @@ namespace tktco.UdonSharpLinter
             var checkMethods = ExtractCheckMethods(root);
 
             // カテゴリ別に分類
-            var categorizedMethods = CategorizeCheckMethods(checkMethods, errorCodes);
+            var (categorizedMethods, skippedMethods) = CategorizeCheckMethods(checkMethods, errorCodes);
 
-            // 未分類のチェックメソッドがあればエラー
+            // 未分類のチェックメソッドがあればエラー（スキップされたdeprecatedメソッドは除外）
             var categorizedMethodNames = categorizedMethods.Values
                 .SelectMany(m => m)
                 .Select(m => m.MethodName)
                 .ToHashSet();
             var uncategorizedMethods = checkMethods
-                .Where(m => !categorizedMethodNames.Contains(m.MethodName))
+                .Where(m => !categorizedMethodNames.Contains(m.MethodName) && !skippedMethods.Contains(m.MethodName))
                 .ToList();
 
             if (uncategorizedMethods.Any())
@@ -290,7 +290,7 @@ namespace tktco.UdonSharpLinter
             return errorCodeNames.ToList();
         }
 
-        private static Dictionary<string, List<CheckMethodInfo>> CategorizeCheckMethods(
+        private static (Dictionary<string, List<CheckMethodInfo>> categories, HashSet<string> skippedMethods) CategorizeCheckMethods(
             List<CheckMethodInfo> methods,
             Dictionary<int, ErrorCodeInfo> errorCodes)
         {
@@ -300,18 +300,24 @@ namespace tktco.UdonSharpLinter
                 { "API and Attribute Restrictions", new List<CheckMethodInfo>() },
                 { "Cross-file and Semantic Analysis", new List<CheckMethodInfo>() }
             };
+            var skippedMethods = new HashSet<string>();
 
             // エラーコード名でカテゴリ分け（メソッド本体から抽出したLintErrorCodes.XXXを使用）
+            // Note: Deprecated error codes (Property, NullCoalescingOperator) are now supported in UdonSharp 1.0+
+            var deprecatedCodes = new HashSet<string>
+            {
+                "Property", "NullCoalescingOperator"
+            };
             var basicFeatures = new HashSet<string>
             {
                 "TryCatch", "Throw", "LocalFunction", "Constructor", "GenericMethod",
                 "ObjectInitializer", "CollectionInitializer", "MultidimensionalArray",
                 "StaticField", "NestedType", "GenericClass",
-                "NullConditionalOperator", "NullCoalescingOperator", "AsyncAwait", "GotoStatement"
+                "NullConditionalOperator", "AsyncAwait", "GotoStatement"
             };
             var apiRestrictions = new HashSet<string>
             {
-                "NetworkCallable", "TextMeshProAPI", "Property", "MethodOverload",
+                "NetworkCallable", "TextMeshProAPI", "MethodOverload",
                 "Interface", "UnexposedAPI", "SendCustomEventMethodNotFound"
             };
             var semanticAnalysis = new HashSet<string>
@@ -322,6 +328,15 @@ namespace tktco.UdonSharpLinter
 
             foreach (var method in methods)
             {
+                // Skip methods that only use deprecated error codes
+                var nonDeprecatedCodes = method.ErrorCodeNames.Where(name => !deprecatedCodes.Contains(name)).ToList();
+                if (!nonDeprecatedCodes.Any() && method.ErrorCodeNames.Any(name => deprecatedCodes.Contains(name)))
+                {
+                    // This method only uses deprecated codes, skip it
+                    skippedMethods.Add(method.MethodName);
+                    continue;
+                }
+
                 // メソッド本体から抽出したエラーコード名を使用
                 if (method.ErrorCodeNames.Any(name => basicFeatures.Contains(name)))
                 {
@@ -337,7 +352,7 @@ namespace tktco.UdonSharpLinter
                 }
             }
 
-            return categories;
+            return (categories, skippedMethods);
         }
 
         private static string ConvertMethodNameToDescription(string methodName)

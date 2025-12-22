@@ -16,7 +16,7 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Local functions (UDON003)
 - Multidimensional arrays (UDON009)
 - Nested types (UDON012)
-- Null Conditional Operators (UDON027) - Note: `?.` is not supported, but `??` is supported
+- Null Conditional Operators (UDON027)
 - Object initializers (UDON007)
 - Static fields (UDON011)
 - Throw statements (UDON002)
@@ -29,8 +29,6 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Network Callable methods (UDON013)
 - Send Custom Event methods (UDON026)
 - Text Mesh Pro APIs (UDON014)
-
-> **Note:** Properties (UDON015) and Null Coalescing Operators (UDON028) were previously checked but are now supported in UdonSharp 1.0+.
 
 ### Cross-file and Semantic Analysis
 - Cross File Field Access (UDON020)
