@@ -1,5 +1,28 @@
 # tktco.UdonSharpLinter
 
+## 0.2.0
+
+### Minor Changes
+
+- [#11](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/11) [`edd5afd`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/edd5afda1bb9665a01572041bcfe19248f171c04) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Add new lint checks inspired by udon-analyzer
+
+  New checks added:
+
+  - UDON026: SendCustomEvent method name validation - Detects typos and missing methods in SendCustomEvent, SendCustomEventDelayedSeconds, SendCustomEventDelayedFrames, and SendCustomNetworkEvent calls
+  - UDON027: Null conditional operator (?.) detection - Detects usage of unsupported ?. operator
+  - UDON028: Null coalescing operator (??, ??=) detection - Detects usage of unsupported ?? and ??= operators
+  - UDON029: Async/await detection - Detects usage of unsupported async methods and await expressions
+  - UDON030: Goto/label statement detection - Detects usage of unsupported goto and labeled statements
+
+  Also added:
+
+  - Test project with unit tests for new checks
+  - CI workflow for running tests on PRs
+
+### Patch Changes
+
+- [#9](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/9) [`127d7e2`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/127d7e21319109d531f560cff6de89acc72a05c7) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Simplify README for end users and use global tool command in examples
+
 ## 0.1.3
 
 ### Patch Changes
