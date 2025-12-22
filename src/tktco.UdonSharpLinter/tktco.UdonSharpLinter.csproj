@@ -4,6 +4,14 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="tktco.UdonSharpLinter.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup>
 
     <!-- NuGet Package Settings -->
     <PackAsTool>true</PackAsTool>

@@ -10,7 +10,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace tktco.UdonSharpLinter
 {
-    class Program
+    internal class Program
     {
         #region Fields
 
@@ -214,6 +214,11 @@ namespace tktco.UdonSharpLinter
                 CheckCrossFileFieldAccess(root, filePath, errors, compilation);
                 CheckCrossFileMethodInvocation(root, filePath, errors, compilation);
                 CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
+                CheckSendCustomEventMethods(root, filePath, errors, compilation);
+                CheckNullConditionalOperators(root, filePath, errors);
+                CheckNullCoalescingOperators(root, filePath, errors);
+                CheckAsyncAwait(root, filePath, errors);
+                CheckGotoStatements(root, filePath, errors);
 
                 // Report errors
                 foreach (var error in errors)
@@ -290,7 +295,7 @@ namespace tktco.UdonSharpLinter
 
         #region Models
 
-        private class LintError
+        internal class LintError
         {
             public string FilePath { get; set; } = "";
             public int Line { get; set; }
@@ -305,8 +310,14 @@ namespace tktco.UdonSharpLinter
         /// Note: Some numbers are skipped (reserved for future use or removed checks)
         /// - 4, 10: Reserved for future use
         /// - 23, 24: Removed (replaced by UDON025)
+        ///
+        /// Error code ranges:
+        /// - 1-12, 18: Basic language feature restrictions
+        /// - 13-17, 19: API and attribute restrictions
+        /// - 20-25: Cross-file and semantic analysis
+        /// - 26-30: Additional language feature restrictions (SendCustomEvent, null operators, async/await, goto)
         /// </summary>
-        private static class LintErrorCodes
+        internal static class LintErrorCodes
         {
             // Basic language feature restrictions
             public const int TryCatch = 1;
@@ -334,6 +345,13 @@ namespace tktco.UdonSharpLinter
             public const int StaticMethodFieldAccess = 21;
             public const int CrossFileMethodInvocation = 22;
             public const int UdonBehaviourSerializableClassUsage = 25;
+
+            // Additional language feature restrictions
+            public const int SendCustomEventMethodNotFound = 26;
+            public const int NullConditionalOperator = 27;
+            public const int NullCoalescingOperator = 28;
+            public const int AsyncAwait = 29;
+            public const int GotoStatement = 30;
         }
 
         #endregion
@@ -1508,6 +1526,385 @@ namespace tktco.UdonSharpLinter
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// UdonSharp制約: SendCustomEvent系メソッドで指定したメソッド名が存在するか検証
+        ///
+        /// SendCustomEvent、SendCustomEventDelayedSeconds、SendCustomEventDelayedFrames、
+        /// SendCustomNetworkEventで指定した文字列のメソッドが存在しない場合、
+        /// 実行時エラーとなります。このチェックでは、タイポやリファクタリング時の
+        /// メソッド名変更漏れを検出します。
+        ///
+        /// 例:
+        /// NG: SendCustomEvent("OnDamege"); // "OnDamage"のタイポ
+        /// NG: SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, "OnPlayerJoind"); // タイポ
+        /// OK: SendCustomEvent("OnDamage"); public void OnDamage() { }
+        /// </summary>
+        private static void CheckSendCustomEventMethods(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
+        {
+            var tree = root.SyntaxTree;
+            var semanticModel = compilation.GetSemanticModel(tree);
+
+            if (semanticModel == null)
+                return;
+
+            // SendCustomEvent系メソッド名
+            var sendCustomEventMethods = new HashSet<string>
+            {
+                "SendCustomEvent",
+                "SendCustomEventDelayedSeconds",
+                "SendCustomEventDelayedFrames",
+                "SendCustomNetworkEvent"
+            };
+
+            var invocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>();
+
+            foreach (var invocation in invocations)
+            {
+                try
+                {
+                    string methodName = "";
+
+                    // メソッド名を取得
+                    if (invocation.Expression is MemberAccessExpressionSyntax memberAccess)
+                    {
+                        methodName = memberAccess.Name.Identifier.Text;
+                    }
+                    else if (invocation.Expression is IdentifierNameSyntax identifier)
+                    {
+                        methodName = identifier.Identifier.Text;
+                    }
+
+                    if (!sendCustomEventMethods.Contains(methodName))
+                        continue;
+
+                    // 引数からイベント名を取得
+                    var args = invocation.ArgumentList.Arguments;
+                    if (args.Count == 0)
+                        continue;
+
+                    // SendCustomNetworkEventの場合、2番目の引数がイベント名
+                    int eventNameArgIndex = methodName == "SendCustomNetworkEvent" ? 1 : 0;
+                    if (args.Count <= eventNameArgIndex)
+                        continue;
+
+                    var eventNameArg = args[eventNameArgIndex].Expression;
+
+                    // 文字列リテラルの場合のみチェック
+                    if (eventNameArg is LiteralExpressionSyntax literal &&
+                        literal.IsKind(SyntaxKind.StringLiteralExpression))
+                    {
+                        var eventName = literal.Token.ValueText;
+
+                        // 呼び出し元のクラスを特定
+                        ClassDeclarationSyntax? targetClass = null;
+
+                        if (invocation.Expression is MemberAccessExpressionSyntax ma)
+                        {
+                            // someObject.SendCustomEvent() の場合
+                            var receiverSymbol = semanticModel.GetSymbolInfo(ma.Expression).Symbol;
+
+                            if (receiverSymbol is ILocalSymbol localSymbol)
+                            {
+                                targetClass = FindClassDeclarationForType(root, localSymbol.Type, compilation);
+                            }
+                            else if (receiverSymbol is IFieldSymbol fieldSymbol)
+                            {
+                                targetClass = FindClassDeclarationForType(root, fieldSymbol.Type, compilation);
+                            }
+                            else if (receiverSymbol is IParameterSymbol paramSymbol)
+                            {
+                                targetClass = FindClassDeclarationForType(root, paramSymbol.Type, compilation);
+                            }
+                            else if (ma.Expression is ThisExpressionSyntax)
+                            {
+                                // this.SendCustomEvent() の場合
+                                targetClass = invocation.Ancestors().OfType<ClassDeclarationSyntax>().FirstOrDefault();
+                            }
+                        }
+                        else
+                        {
+                            // SendCustomEvent() の場合 (暗黙のthis)
+                            targetClass = invocation.Ancestors().OfType<ClassDeclarationSyntax>().FirstOrDefault();
+                        }
+
+                        if (targetClass != null)
+                        {
+                            // メソッドが存在するかチェック
+                            var methods = targetClass.Members.OfType<MethodDeclarationSyntax>();
+                            bool methodExists = methods.Any(m => m.Identifier.Text == eventName);
+
+                            if (!methodExists)
+                            {
+                                AddError(
+                                    errors,
+                                    filePath,
+                                    invocation,
+                                    $"Method '{eventName}' not found in class '{targetClass.Identifier.Text}'. " +
+                                    $"SendCustomEvent will fail at runtime if the method does not exist.",
+                                    LintErrorCodes.SendCustomEventMethodNotFound
+                                );
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // セマンティック解析が失敗した場合は無視
+                }
+            }
+        }
+
+        /// <summary>
+        /// 型に対応するクラス宣言を検索
+        /// </summary>
+        private static ClassDeclarationSyntax? FindClassDeclarationForType(SyntaxNode root, ITypeSymbol typeSymbol, CSharpCompilation compilation)
+        {
+            if (typeSymbol == null)
+                return null;
+
+            // まず現在のファイル内で検索
+            var classes = root.DescendantNodes().OfType<ClassDeclarationSyntax>();
+            foreach (var classDecl in classes)
+            {
+                if (classDecl.Identifier.Text == typeSymbol.Name)
+                {
+                    return classDecl;
+                }
+            }
+
+            // 他のファイルも検索
+            foreach (var tree in compilation.SyntaxTrees)
+            {
+                if (tree == root.SyntaxTree)
+                    continue;
+
+                var treeRoot = tree.GetRoot();
+                var treeClasses = treeRoot.DescendantNodes().OfType<ClassDeclarationSyntax>();
+                foreach (var classDecl in treeClasses)
+                {
+                    if (classDecl.Identifier.Text == typeSymbol.Name)
+                    {
+                        return classDecl;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// UdonSharp制約: null条件演算子 (?.) は使用できません
+        ///
+        /// Udonではnull条件演算子（?.）がサポートされていません。
+        /// 代わりに、明示的なnullチェックを使用する必要があります。
+        ///
+        /// 例:
+        /// NG: player?.GetDisplayName();
+        /// NG: player?.health;
+        /// OK: if (player != null) player.GetDisplayName();
+        /// OK: player != null ? player.health : 0;
+        /// </summary>
+        private static void CheckNullConditionalOperators(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            // ?. 演算子 (ConditionalAccessExpression)
+            var conditionalAccesses = root.DescendantNodes().OfType<ConditionalAccessExpressionSyntax>();
+
+            foreach (var conditionalAccess in conditionalAccesses)
+            {
+                AddError(errors, filePath, conditionalAccess,
+                    "Null conditional operator (?.) is not supported in UdonSharp. Use explicit null checks instead.",
+                    LintErrorCodes.NullConditionalOperator);
+            }
+        }
+
+        /// <summary>
+        /// UdonSharp制約: null合体演算子 (??, ??=) は使用できません
+        ///
+        /// Udonではnull合体演算子（??）およびnull合体代入演算子（??=）がサポートされていません。
+        /// 代わりに、明示的なnullチェックと条件分岐を使用する必要があります。
+        ///
+        /// 例:
+        /// NG: string name = playerName ?? "Guest";
+        /// NG: playerName ??= "Guest";
+        /// OK: string name = playerName != null ? playerName : "Guest";
+        /// OK: if (playerName == null) playerName = "Guest";
+        /// </summary>
+        private static void CheckNullCoalescingOperators(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            // ?? 演算子 (CoalesceExpression)
+            var coalesceExpressions = root.DescendantNodes()
+                .OfType<BinaryExpressionSyntax>()
+                .Where(b => b.IsKind(SyntaxKind.CoalesceExpression));
+
+            foreach (var coalesce in coalesceExpressions)
+            {
+                AddError(errors, filePath, coalesce,
+                    "Null coalescing operator (??) is not supported in UdonSharp. Use explicit null checks instead.",
+                    LintErrorCodes.NullCoalescingOperator);
+            }
+
+            // ??= 演算子 (CoalesceAssignmentExpression)
+            var coalesceAssignments = root.DescendantNodes()
+                .OfType<AssignmentExpressionSyntax>()
+                .Where(a => a.IsKind(SyntaxKind.CoalesceAssignmentExpression));
+
+            foreach (var coalesceAssignment in coalesceAssignments)
+            {
+                AddError(errors, filePath, coalesceAssignment,
+                    "Null coalescing assignment operator (??=) is not supported in UdonSharp. Use explicit null checks instead.",
+                    LintErrorCodes.NullCoalescingOperator);
+            }
+        }
+
+        /// <summary>
+        /// UdonSharp制約: async/await は使用できません
+        ///
+        /// Udonでは非同期処理（async/await）がサポートされていません。
+        /// 代わりに、SendCustomEventDelayedSecondsやUpdateループを使用して
+        /// 非同期的な処理を実装する必要があります。
+        ///
+        /// 例:
+        /// NG: public async void Start() { await Task.Delay(1000); }
+        /// NG: public async Task&lt;int&gt; GetValueAsync() { }
+        /// OK: public void Start() { SendCustomEventDelayedSeconds("DelayedAction", 1.0f); }
+        /// </summary>
+        private static void CheckAsyncAwait(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            // async メソッド
+            var asyncMethods = root.DescendantNodes()
+                .OfType<MethodDeclarationSyntax>()
+                .Where(m => m.Modifiers.Any(mod => mod.IsKind(SyntaxKind.AsyncKeyword)));
+
+            foreach (var method in asyncMethods)
+            {
+                AddError(errors, filePath, method,
+                    $"Async methods are not supported in UdonSharp. Use SendCustomEventDelayedSeconds or Update loop instead.",
+                    LintErrorCodes.AsyncAwait);
+            }
+
+            // async ローカル関数（LocalFunctionで既にエラーになるが、より具体的なメッセージを出す）
+            var asyncLocalFunctions = root.DescendantNodes()
+                .OfType<LocalFunctionStatementSyntax>()
+                .Where(f => f.Modifiers.Any(mod => mod.IsKind(SyntaxKind.AsyncKeyword)));
+
+            foreach (var localFunc in asyncLocalFunctions)
+            {
+                AddError(errors, filePath, localFunc,
+                    "Async local functions are not supported in UdonSharp.",
+                    LintErrorCodes.AsyncAwait);
+            }
+
+            // await 式
+            var awaitExpressions = root.DescendantNodes().OfType<AwaitExpressionSyntax>();
+
+            foreach (var awaitExpr in awaitExpressions)
+            {
+                AddError(errors, filePath, awaitExpr,
+                    "Await expressions are not supported in UdonSharp.",
+                    LintErrorCodes.AsyncAwait);
+            }
+        }
+
+        /// <summary>
+        /// UdonSharp制約: goto文およびラベル文は使用できません
+        ///
+        /// Udonではgoto文（goto label、goto case、goto default）および
+        /// ラベル付き文がサポートされていません。
+        /// 代わりに、ループのbreak/continueや、メソッド分割を使用してください。
+        ///
+        /// 例:
+        /// NG: goto retry;
+        /// NG: retry: DoSomething();
+        /// NG: switch (x) { case 1: goto case 2; }
+        /// OK: while (shouldRetry) { DoSomething(); }
+        /// </summary>
+        private static void CheckGotoStatements(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            // goto 文
+            var gotoStatements = root.DescendantNodes().OfType<GotoStatementSyntax>();
+
+            foreach (var gotoStmt in gotoStatements)
+            {
+                string gotoType = gotoStmt.Kind() switch
+                {
+                    SyntaxKind.GotoCaseStatement => "goto case",
+                    SyntaxKind.GotoDefaultStatement => "goto default",
+                    _ => "goto"
+                };
+
+                AddError(errors, filePath, gotoStmt,
+                    $"'{gotoType}' statements are not supported in UdonSharp. Use loops with break/continue or method extraction instead.",
+                    LintErrorCodes.GotoStatement);
+            }
+
+            // ラベル付き文
+            var labeledStatements = root.DescendantNodes().OfType<LabeledStatementSyntax>();
+
+            foreach (var labeledStmt in labeledStatements)
+            {
+                AddError(errors, filePath, labeledStmt,
+                    $"Labeled statements ('{labeledStmt.Identifier.Text}:') are not supported in UdonSharp.",
+                    LintErrorCodes.GotoStatement);
+            }
+        }
+
+        #endregion
+
+        #region Test Helpers
+
+        /// <summary>
+        /// Analyzes source code and returns lint errors (for testing purposes)
+        /// </summary>
+        internal static List<LintError> AnalyzeCode(string sourceCode, string filePath = "TestFile.cs")
+        {
+            var tree = CSharpSyntaxTree.ParseText(sourceCode, path: filePath);
+            var root = tree.GetRoot();
+
+            var references = new List<MetadataReference>
+            {
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+            };
+
+            var compilation = CSharpCompilation.Create(
+                "TestCompilation",
+                new[] { tree },
+                references,
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+            );
+
+            var errors = new List<LintError>();
+
+            // Run all syntax checks
+            CheckTryCatchStatements(root, filePath, errors);
+            CheckThrowStatements(root, filePath, errors);
+            CheckLocalFunctions(root, filePath, errors);
+            CheckObjectInitializers(root, filePath, errors);
+            CheckCollectionInitializers(root, filePath, errors);
+            CheckMultidimensionalArrays(root, filePath, errors);
+            CheckConstructors(root, filePath, errors);
+            CheckGenericMethods(root, filePath, errors);
+            CheckGenericClasses(root, filePath, errors);
+            CheckStaticFields(root, filePath, errors);
+            CheckNestedTypes(root, filePath, errors);
+            CheckNetworkCallableMethods(root, filePath, errors);
+            CheckTextMeshProAPIs(root, filePath, errors);
+            CheckGeneralUnexposedAPIs(root, filePath, errors);
+            CheckProperties(root, filePath, errors);
+            CheckMethodOverloads(root, filePath, errors);
+            CheckInterfaces(root, filePath, errors);
+            CheckCrossFileFieldAccess(root, filePath, errors, compilation);
+            CheckCrossFileMethodInvocation(root, filePath, errors, compilation);
+            CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
+            CheckSendCustomEventMethods(root, filePath, errors, compilation);
+            CheckNullConditionalOperators(root, filePath, errors);
+            CheckNullCoalescingOperators(root, filePath, errors);
+            CheckAsyncAwait(root, filePath, errors);
+            CheckGotoStatements(root, filePath, errors);
+
+            return errors;
         }
 
         #endregion
