@@ -24,9 +24,11 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Try Catch statements (UDON001)
 
 ### API and Attribute Restrictions
+- General Unexposed APIs (UDON019)
 - Interfaces (UDON017)
 - Method Overloads (UDON016)
 - Network Callable methods (UDON013)
+- Properties (UDON015)
 - Send Custom Event methods (UDON026)
 - Text Mesh Pro APIs (UDON014)
 

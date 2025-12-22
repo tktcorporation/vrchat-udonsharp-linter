@@ -61,6 +61,28 @@ namespace tktco.UdonSharpLinter
             // カテゴリ別に分類
             var categorizedMethods = CategorizeCheckMethods(checkMethods, errorCodes);
 
+            // 未分類のチェックメソッドがあればエラー
+            var categorizedMethodNames = categorizedMethods.Values
+                .SelectMany(m => m)
+                .Select(m => m.MethodName)
+                .ToHashSet();
+            var uncategorizedMethods = checkMethods
+                .Where(m => !categorizedMethodNames.Contains(m.MethodName))
+                .ToList();
+
+            if (uncategorizedMethods.Any())
+            {
+                Console.Error.WriteLine("[README Generator] Error: The following Check methods are not categorized:");
+                foreach (var method in uncategorizedMethods)
+                {
+                    var codes = ExtractErrorCodeNumbers(method.MethodName, errorCodes);
+                    var codeStr = codes.Any() ? $" (UDON{string.Join(", UDON", codes.Select(c => c.ToString("D3")))})" : "";
+                    Console.Error.WriteLine($"  - {method.MethodName}{codeStr}");
+                }
+                Console.Error.WriteLine("[README Generator] Please add the error codes to the category arrays in CategorizeCheckMethods()");
+                Environment.Exit(1);
+            }
+
             // READMEを生成
             var readme = GenerateREADME(errorCodes, categorizedMethods);
 
@@ -253,8 +275,13 @@ namespace tktco.UdonSharpLinter
             };
 
             // エラーコードの範囲でカテゴリ分け
+            // Basic: TryCatch(1), Throw(2), LocalFunction(3), Constructor(5), GenericMethod(6), ObjectInitializer(7),
+            //        CollectionInitializer(8), MultidimensionalArray(9), StaticField(11), NestedType(12), GenericClass(18),
+            //        NullConditional(27), NullCoalescing(28), AsyncAwait(29), Goto(30)
             var basicFeatures = new[] { 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 18, 27, 28, 29, 30 };
+            // API: NetworkCallable(13), TextMeshPro(14), Property(15), MethodOverload(16), Interface(17), UnexposedAPI(19), SendCustomEvent(26)
             var apiRestrictions = new[] { 13, 14, 15, 16, 17, 19, 26 };
+            // Semantic: CrossFileField(20), StaticMethodField(21), CrossFileMethod(22), SerializableClass(25)
             var semanticAnalysis = new[] { 20, 21, 22, 25 };
 
             foreach (var method in methods)
@@ -303,11 +330,26 @@ namespace tktco.UdonSharpLinter
 
         private static List<int> ExtractErrorCodeNumbers(string methodName, Dictionary<int, ErrorCodeInfo> errorCodes)
         {
+            // メソッド名とエラーコード名の直接マッピング（名前が一致しない場合用）
+            var directMappings = new Dictionary<string, string[]>
+            {
+                { "CheckGeneralUnexposedAPIs", new[] { "UnexposedAPI" } },
+                { "CheckProperties", new[] { "Property" } },
+                { "CheckSendCustomEventMethods", new[] { "SendCustomEventMethodNotFound" } },
+            };
+
+            if (directMappings.TryGetValue(methodName, out var mappedNames))
+            {
+                return errorCodes.Values
+                    .Where(e => mappedNames.Contains(e.Name))
+                    .Select(e => e.Code)
+                    .ToList();
+            }
+
             // メソッド名からエラーコード名を推測
             // CheckTryCatchStatements -> TryCatch -> errorCodes.Values.First(e => e.Name == "TryCatch").Code
-
             var methodBaseName = methodName.Replace("Check", "");
-            methodBaseName = Regex.Replace(methodBaseName, "(Statements|Methods|Fields|Types|Classes|APIs|Initializers|Arrays)", "");
+            methodBaseName = Regex.Replace(methodBaseName, "(Statements|Methods|Fields|Types|Classes|APIs|Initializers|Arrays|Operators)", "");
             methodBaseName = methodBaseName.Trim();
 
             var matchingCodes = errorCodes.Values
