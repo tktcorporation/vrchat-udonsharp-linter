@@ -1,5 +1,16 @@
 # tktco.UdonSharpLinter
 
+## 0.2.1
+
+### Patch Changes
+
+- [#13](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/13) [`9124c1b`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/9124c1b65921a169eb9dd295d86d64c2c161f4d6) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Unify package name to tktco.UdonSharpLinter and improve READMEGenerator
+
+  - Fix package name consistency across package.json, CHANGELOG.md, and changeset files
+  - READMEGenerator now extracts error codes directly from method bodies using Roslyn
+  - Automatically follows method calls to find error codes in child methods
+  - Errors if Check methods use uncategorized error codes
+
 ## 0.2.0
 
 ### Minor Changes
