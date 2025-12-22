@@ -253,8 +253,8 @@ namespace tktco.UdonSharpLinter
             };
 
             // エラーコードの範囲でカテゴリ分け
-            var basicFeatures = new[] { 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 18 };
-            var apiRestrictions = new[] { 13, 14, 15, 16, 17, 19 };
+            var basicFeatures = new[] { 1, 2, 3, 5, 6, 7, 8, 9, 11, 12, 18, 27, 28, 29, 30 };
+            var apiRestrictions = new[] { 13, 14, 15, 16, 17, 19, 26 };
             var semanticAnalysis = new[] { 20, 21, 22, 25 };
 
             foreach (var method in methods)

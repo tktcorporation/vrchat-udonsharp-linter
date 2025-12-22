@@ -7,13 +7,17 @@ A static code analyzer for UdonSharp scripts in VRChat projects. This tool detec
 UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, including:
 
 ### Basic Language Features
+- Async Await (UDON029)
 - Collection initializers (UDON008)
 - Constructors (UDON005)
 - Generic classes (UDON006, UDON018)
 - Generic methods (UDON006, UDON018)
+- Goto statements (UDON030)
 - Local functions (UDON003)
 - Multidimensional arrays (UDON009)
 - Nested types (UDON012)
+- Null Coalescing Operators (UDON028)
+- Null Conditional Operators (UDON027)
 - Object initializers (UDON007)
 - Static fields (UDON011, UDON021)
 - Throw statements (UDON002)
@@ -23,6 +27,7 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Interfaces (UDON017)
 - Method Overloads (UDON016)
 - Network Callable methods (UDON013)
+- Send Custom Event methods (UDON026)
 - Text Mesh Pro APIs (UDON014)
 
 ### Cross-file and Semantic Analysis
