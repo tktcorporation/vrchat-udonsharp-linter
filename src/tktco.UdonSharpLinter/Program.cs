@@ -221,6 +221,7 @@ namespace tktco.UdonSharpLinter
                 // CheckNullCoalescingOperators(root, filePath, errors);
                 CheckAsyncAwait(root, filePath, errors);
                 CheckGotoStatements(root, filePath, errors);
+                CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
 
                 // Report errors
                 foreach (var error in errors)
@@ -319,7 +320,7 @@ namespace tktco.UdonSharpLinter
         /// - 1-12, 18: Basic language feature restrictions
         /// - 13-17, 19: API and attribute restrictions
         /// - 20-25: Cross-file and semantic analysis
-        /// - 26-30: Additional language feature restrictions (SendCustomEvent, null operators, async/await, goto)
+        /// - 26-31: Additional language feature restrictions (SendCustomEvent, null operators, async/await, goto, user-defined type static field access)
         /// </summary>
         internal static class LintErrorCodes
         {
@@ -360,6 +361,7 @@ namespace tktco.UdonSharpLinter
             public const int NullCoalescingOperator = 28;
             public const int AsyncAwait = 29;
             public const int GotoStatement = 30;
+            public const int UserDefinedTypeStaticFieldAccess = 31;
         }
 
         #endregion
@@ -1854,6 +1856,137 @@ namespace tktco.UdonSharpLinter
             }
         }
 
+        /// <summary>
+        /// UdonSharp制約: ユーザー定義型の静的フィールドへのアクセスは使用できません
+        ///
+        /// UdonSharpでは、ユーザー定義型（UdonSharpBehaviourを継承していない通常のクラス）の
+        /// 静的フィールドにアクセスすることができません。これは、Udonの実行環境が
+        /// 静的な状態の共有をサポートしていないためです。
+        ///
+        /// ただし、以下は許可されています：
+        /// - const（コンパイル時定数）
+        /// - Unity組み込み型の静的フィールド（UnityEngine、VRC.SDKBase等）
+        ///
+        /// 例:
+        /// NG: var c = RybColorUtility.SomeColor; // ユーザー定義型の静的フィールド
+        /// NG: MyHelper.Counter++; // ユーザー定義型の静的フィールド
+        /// OK: var pi = Mathf.PI; // Unity組み込み型の静的フィールド
+        /// OK: var max = int.MaxValue; // System型の静的フィールド
+        /// OK: var c = MyClass.MY_CONST; // const は OK
+        /// </summary>
+        private static void CheckUserDefinedTypeStaticFieldAccess(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
+        {
+            var tree = root.SyntaxTree;
+            var semanticModel = compilation.GetSemanticModel(tree);
+
+            if (semanticModel == null)
+                return;
+
+            // UdonSharpBehaviourクラス内のコードのみをチェック
+            var udonSharpClasses = FindUdonSharpBehaviourClasses(root);
+
+            foreach (var classDecl in udonSharpClasses)
+            {
+                var memberAccesses = classDecl.DescendantNodes().OfType<MemberAccessExpressionSyntax>();
+
+                foreach (var memberAccess in memberAccesses)
+                {
+                    try
+                    {
+                        var symbolInfo = semanticModel.GetSymbolInfo(memberAccess);
+
+                        if (symbolInfo.Symbol is IFieldSymbol fieldSymbol)
+                        {
+                            // 静的フィールドかどうかをチェック
+                            if (!fieldSymbol.IsStatic)
+                                continue;
+
+                            // constは許可
+                            if (fieldSymbol.IsConst)
+                                continue;
+
+                            // static readonlyもconstと同様に扱う（コンパイル時または静的初期化時に決定される値）
+                            if (fieldSymbol.IsReadOnly)
+                                continue;
+
+                            var containingType = fieldSymbol.ContainingType;
+
+                            if (containingType == null)
+                                continue;
+
+                            // ユーザー定義型かどうかを判定
+                            if (IsUserDefinedType(containingType))
+                            {
+                                AddError(
+                                    errors,
+                                    filePath,
+                                    memberAccess,
+                                    $"Static fields on user-defined types are not supported in UdonSharp. " +
+                                    $"Field '{fieldSymbol.Name}' on type '{containingType.Name}' is a static field. " +
+                                    $"Use const instead, or move the field to a UdonSharpBehaviour with [UdonSynced] if synchronization is needed.",
+                                    LintErrorCodes.UserDefinedTypeStaticFieldAccess
+                                );
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // セマンティック解析が失敗した場合は無視
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// ユーザー定義型かどうかを判定
+        /// Unity/VRC/System組み込み型を除外
+        /// </summary>
+        private static bool IsUserDefinedType(INamedTypeSymbol typeSymbol)
+        {
+            if (typeSymbol == null)
+                return false;
+
+            var namespaceName = typeSymbol.ContainingNamespace?.ToDisplayString() ?? "";
+
+            // 組み込み名前空間を除外
+            var builtInNamespaces = new[]
+            {
+                "UnityEngine",
+                "UnityEditor",
+                "VRC",
+                "UdonSharp",
+                "TMPro",
+                "System",
+                "Microsoft"
+            };
+
+            foreach (var ns in builtInNamespaces)
+            {
+                if (namespaceName.StartsWith(ns))
+                {
+                    return false;
+                }
+            }
+
+            // グローバル名前空間の場合、型名で判断
+            if (string.IsNullOrEmpty(namespaceName))
+            {
+                // Unity組み込み型のリスト（グローバル名前空間にある場合）
+                var unityBuiltInTypes = new HashSet<string>
+                {
+                    "Mathf", "Vector2", "Vector3", "Vector4", "Color", "Color32",
+                    "Quaternion", "Matrix4x4", "Bounds", "Rect", "Ray", "Plane"
+                };
+
+                if (unityBuiltInTypes.Contains(typeSymbol.Name))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         #endregion
 
         #region Test Helpers
@@ -1909,6 +2042,7 @@ namespace tktco.UdonSharpLinter
             // CheckNullCoalescingOperators(root, filePath, errors);
             CheckAsyncAwait(root, filePath, errors);
             CheckGotoStatements(root, filePath, errors);
+            CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
 
             return errors;
         }
