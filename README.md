@@ -35,6 +35,7 @@ UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, inc
 - Cross File Method Invocation (UDON022)
 - Static Method Field Access (UDON021)
 - Udon Behaviour Serializable Class Usage (UDON025)
+- User Defined Type Static Field Access (UDON031)
 
 ## Installation
 
