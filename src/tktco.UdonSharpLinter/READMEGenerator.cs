@@ -384,27 +384,90 @@ namespace tktco.UdonSharpLinter
         {
             var sb = new StringBuilder();
 
-            // ヘッダー
+            // ヘッダー + バッジ
             sb.AppendLine("# UdonSharpLinterCLI");
             sb.AppendLine();
-            sb.AppendLine("A static code analyzer for UdonSharp scripts in VRChat projects. This tool detects language features and patterns that are not supported by UdonSharp at compile time.");
+            sb.AppendLine("[![NuGet](https://img.shields.io/nuget/v/tktco.UdonSharpLinter)](https://www.nuget.org/packages/tktco.UdonSharpLinter)");
+            sb.AppendLine("[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)");
+            sb.AppendLine();
+            sb.AppendLine("VRChat の UdonSharp スクリプトを対象とした静的コード解析ツールです。UdonSharp がサポートしていない言語機能・パターンをコンパイル前に検出します。");
+            sb.AppendLine();
+            sb.AppendLine("---");
             sb.AppendLine();
 
-            // Features セクション
-            sb.AppendLine("## Features");
-            sb.AppendLine();
-            sb.AppendLine("UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, including:");
-            sb.AppendLine();
+            // インストール（最上部）
+            sb.AppendLine(@"## インストール
 
+> **前提条件:** .NET 6.0 以降が必要です。
+
+```bash
+dotnet tool install -g tktco.UdonSharpLinter
+```
+
+### アップデート
+
+```bash
+dotnet tool update -g tktco.UdonSharpLinter
+```
+
+---
+
+## クイックスタート
+
+```bash
+# Assets フォルダ以下の UdonSharp スクリプトをすべて解析
+udonsharp-lint Assets
+
+# テストスクリプトを除外して解析
+udonsharp-lint Assets --exclude-test-scripts
+```
+
+---
+
+## 使い方
+
+```
+udonsharp-lint <directory_path> [--exclude-test-scripts]
+```
+
+| 引数 / オプション | 説明 |
+|---|---|
+| `<directory_path>` | 解析対象ディレクトリのパス |
+| `--exclude-test-scripts` | `TestScripts` / `Tests` / `Test` ディレクトリを除外 |
+
+### 出力フォーマット
+
+標準的なコンパイラ形式で出力されるため、多くの IDE や CI/CD ツールとそのまま連携できます。
+
+```
+path/to/file.cs(line,column): error UDON###: Error message
+path/to/file.cs(line,column): warning UDON###: Warning message
+```
+
+### 終了コード
+
+| コード | 意味 |
+|---|---|
+| `0` | エラーなし（警告があっても 0） |
+| `1` | エラーあり、または実行失敗 |
+
+---
+
+## 検出できる問題
+");
+
+            // カテゴリ別チェック一覧（テーブル形式）
             foreach (var category in categorizedMethods)
             {
                 if (!category.Value.Any()) continue;
 
                 sb.AppendLine($"### {category.Key}");
+                sb.AppendLine();
+                sb.AppendLine("| Error Code | Description |");
+                sb.AppendLine("|---|---|");
 
                 foreach (var method in category.Value.OrderBy(m => m.MethodName))
                 {
-                    // エラーコード名からエラーコード番号を取得
                     var codes = method.ErrorCodeNames
                         .Select(name => errorCodes.Values.FirstOrDefault(e => e.Name == name)?.Code)
                         .Where(c => c.HasValue)
@@ -412,68 +475,35 @@ namespace tktco.UdonSharpLinter
                         .Distinct()
                         .OrderBy(c => c)
                         .ToList();
-                    var codeStr = codes.Any() ? $" (UDON{string.Join(", UDON", codes.Select(c => c.ToString("D3")))})" : "";
 
-                    // 英語の説明を生成
-                    var englishDescription = ConvertMethodNameToDescription(method.MethodName);
+                    var codeCell = codes.Any()
+                        ? string.Join(", ", codes.Select(c => $"UDON{c:D3}"))
+                        : "-";
 
-                    sb.AppendLine($"- {englishDescription}{codeStr}");
+                    var description = method.Summary;
+                    if (!string.IsNullOrEmpty(description))
+                    {
+                        const string prefix = "UdonSharp制約: ";
+                        if (description.StartsWith(prefix))
+                            description = description.Substring(prefix.Length);
+                    }
+                    if (string.IsNullOrEmpty(description))
+                        description = ConvertMethodNameToDescription(method.MethodName);
+
+                    sb.AppendLine($"| {codeCell} | {description} |");
                 }
 
                 sb.AppendLine();
             }
 
-            // 静的な部分（Installation以降）
-            sb.AppendLine(@"## Installation
+            // 静的な部分（インテグレーション以降）
+            sb.AppendLine(@"---
 
-```bash
-dotnet tool install -g tktco.UdonSharpLinter
-```
+## インテグレーション
 
-## Usage
+### Visual Studio Code (`tasks.json`)
 
-```bash
-udonsharp-lint <directory_path> [--exclude-test-scripts]
-```
-
-### Arguments
-
-- `<directory_path>`: Path to the directory containing UdonSharp scripts to analyze
-- `--exclude-test-scripts`: (Optional) Exclude scripts in TestScripts, Tests, or Test directories
-
-### Examples
-
-```bash
-# Analyze all UdonSharp scripts in Assets
-udonsharp-lint Assets
-
-# Analyze excluding test scripts
-udonsharp-lint Assets --exclude-test-scripts
-```
-
-## Output Format
-
-The tool outputs errors and warnings in a standard compiler format:
-
-```
-path/to/file.cs(line,column): error UDON###: Error message
-path/to/file.cs(line,column): warning UDON###: Warning message
-```
-
-This format is compatible with most IDEs and CI/CD tools.
-
-## Exit Codes
-
-- `0`: No errors found (warnings may be present)
-- `1`: Errors found or execution failed
-
-## Requirements
-
-- .NET 6.0 or later
-
-## Integration Examples
-
-### Visual Studio Code (tasks.json)
+問題パネルへの統合と Ctrl+Shift+B での実行を設定できます。
 
 ```json
 {
@@ -512,12 +542,18 @@ This format is compatible with most IDEs and CI/CD tools.
   run: udonsharp-lint Assets --exclude-test-scripts
 ```
 
-### mise (mise.toml)
+### mise (`mise.toml`)
 
 ```toml
 [tasks.lint-udon]
 run = ""udonsharp-lint Assets""
-```");
+```
+
+---
+
+## ライセンス
+
+[MIT](LICENSE)");
 
             return sb.ToString();
         }

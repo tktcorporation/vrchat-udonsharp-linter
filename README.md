@@ -66,44 +66,44 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 
 ## 検出できる問題
 
-### 基本言語機能の制限
+### Basic Language Features
 
-| エラーコード | 内容 |
+| Error Code | Description |
 |---|---|
-| UDON001 | Try/Catch 文 |
-| UDON002 | Throw 文 |
-| UDON003 | ローカル関数 |
-| UDON005 | コンストラクター |
-| UDON006 | ジェネリックメソッド |
-| UDON007 | オブジェクト初期化子 |
-| UDON008 | コレクション初期化子 |
-| UDON009 | 多次元配列（ジャグ配列は使用可） |
-| UDON011 | static フィールド（const は使用可） |
-| UDON012 | ネスト型 |
-| UDON018 | ジェネリッククラス |
-| UDON027 | Null 条件演算子（`?.` / `?[]`） |
-| UDON029 | async / await |
-| UDON030 | goto 文 |
+| UDON029 | async/await は使用できません |
+| UDON008 | コレクション初期化子は使用できません |
+| UDON005 | コンストラクタは使用できません |
+| UDON018 | ジェネリッククラスは使用できません |
+| UDON006 | ジェネリックメソッドは使用できません |
+| UDON030 | goto文およびラベル文は使用できません |
+| UDON003 | ローカル関数は使用できません |
+| UDON009 | 多次元配列は使用できません |
+| UDON012 | ネストした型は使用できません |
+| UDON027 | null条件演算子 (?.) は使用できません |
+| UDON007 | オブジェクト初期化子は使用できません |
+| UDON011 | staticフィールドは使用できません（constは除く） |
+| UDON002 | Throw文は使用できません |
+| UDON001 | Try/Catch/Finally文は使用できません |
 
-### API・属性の制限
+### API and Attribute Restrictions
 
-| エラーコード | 内容 |
+| Error Code | Description |
 |---|---|
-| UDON013 | `[NetworkCallable]` メソッドの制約違反 |
-| UDON014 | TextMesh Pro API（警告） |
-| UDON016 | メソッドオーバーロード |
-| UDON017 | インターフェイス |
-| UDON019 | 未公開 API の使用 |
+| UDON019 | Udonに公開されていない一般的なAPIの使用を検出します |
+| UDON017 | インターフェースの実装は使用できません |
+| UDON016 | メソッドオーバーロードは使用できません |
+| UDON013 | [NetworkCallable]属性付きメソッドには厳しい制約があります |
+| UDON026 | SendCustomEvent系メソッドで指定したメソッド名が存在するか検証 |
+| UDON014 | TextMeshProの未公開APIの使用を検出します |
 
-### クロスファイル・セマンティック解析
+### Cross-file and Semantic Analysis
 
-| エラーコード | 内容 |
+| Error Code | Description |
 |---|---|
-| UDON020 | 別ファイルの UdonSharpBehaviour フィールドへのアクセス |
-| UDON021 | static メソッドからのフィールドアクセス |
-| UDON022 | 別ファイルのメソッド呼び出し |
-| UDON025 | `[UdonBehaviourSyncMode]` を持つクラスの Serializable 使用 |
-| UDON026 | SendCustomEvent で存在しないメソッド名を指定 |
+| UDON020 | 別ファイルで定義されたカスタムクラスのフィールドアクセスは非サポート |
+| UDON022 | 別ファイルで定義されたカスタムクラスのメソッド呼び出しをチェック |
+| UDON021 | UdonSharpから呼び出される静的メソッド内でのカスタムクラスフィールドアクセスは非サポート |
+| UDON025 | UdonSharpBehaviour内での[System.Serializable]クラス使用をチェック（UDON025） |
 
 ---
 
