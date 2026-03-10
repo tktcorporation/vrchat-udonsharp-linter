@@ -75,7 +75,7 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 | UDON029 | Async Await |
 | UDON008 | Collection initializers |
 | UDON005 | Constructors |
-| UDON018 | Generic Classes |
+| UDON018 | Generic classes |
 | UDON006 | Generic methods |
 | UDON030 | Goto statements |
 | UDON003 | Local functions |
