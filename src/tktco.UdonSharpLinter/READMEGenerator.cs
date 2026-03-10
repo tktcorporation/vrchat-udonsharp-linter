@@ -88,6 +88,12 @@ namespace tktco.UdonSharpLinter
 
             File.WriteAllText(readmePath, readme);
             Console.WriteLine($"[README Generator] Generated {readmePath}");
+
+            // 日本語READMEを生成
+            var readmeJaPath = Path.Combine(projectRoot, "README.ja.md");
+            var readmeJa = GenerateJapaneseREADME(errorCodes, categorizedMethods);
+            File.WriteAllText(readmeJaPath, readmeJa);
+            Console.WriteLine($"[README Generator] Generated {readmeJaPath}");
         }
 
         private static Dictionary<int, ErrorCodeInfo> ExtractErrorCodes(SyntaxNode root)
@@ -390,6 +396,188 @@ namespace tktco.UdonSharpLinter
             sb.AppendLine("[![NuGet](https://img.shields.io/nuget/v/tktco.UdonSharpLinter)](https://www.nuget.org/packages/tktco.UdonSharpLinter)");
             sb.AppendLine("[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)");
             sb.AppendLine();
+            sb.AppendLine("🌐 **Language:** English | [日本語](README.ja.md)");
+            sb.AppendLine();
+            sb.AppendLine("A static code analyzer for UdonSharp scripts in VRChat projects. Detects language features and patterns not supported by UdonSharp at compile time.");
+            sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine();
+
+            // Installation section
+            sb.AppendLine(@"## Installation
+
+> **Requirements:** .NET 6.0 or later
+
+```bash
+dotnet tool install -g tktco.UdonSharpLinter
+```
+
+### Update
+
+```bash
+dotnet tool update -g tktco.UdonSharpLinter
+```
+
+---
+
+## Quick Start
+
+```bash
+# Analyze all UdonSharp scripts in Assets
+udonsharp-lint Assets
+
+# Analyze excluding test scripts
+udonsharp-lint Assets --exclude-test-scripts
+```
+
+---
+
+## Usage
+
+```
+udonsharp-lint <directory_path> [--exclude-test-scripts]
+```
+
+| Argument / Option | Description |
+|---|---|
+| `<directory_path>` | Path to the directory to analyze |
+| `--exclude-test-scripts` | Exclude `TestScripts` / `Tests` / `Test` directories |
+
+### Output Format
+
+Errors and warnings are reported in standard compiler format, compatible with most IDEs and CI/CD tools.
+
+```
+path/to/file.cs(line,column): error UDON###: Error message
+path/to/file.cs(line,column): warning UDON###: Warning message
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|---|---|
+| `0` | No errors (warnings may be present) |
+| `1` | Errors found or execution failed |
+
+---
+
+## Checks
+");
+
+            // Check list (table format, English descriptions)
+            foreach (var category in categorizedMethods)
+            {
+                if (!category.Value.Any()) continue;
+
+                sb.AppendLine($"### {category.Key}");
+                sb.AppendLine();
+                sb.AppendLine("| Error Code | Check |");
+                sb.AppendLine("|---|---|");
+
+                foreach (var method in category.Value.OrderBy(m => m.MethodName))
+                {
+                    var codes = method.ErrorCodeNames
+                        .Select(name => errorCodes.Values.FirstOrDefault(e => e.Name == name)?.Code)
+                        .Where(c => c.HasValue)
+                        .Select(c => c!.Value)
+                        .Distinct()
+                        .OrderBy(c => c)
+                        .ToList();
+
+                    var codeCell = codes.Any()
+                        ? string.Join(", ", codes.Select(c => $"UDON{c:D3}"))
+                        : "-";
+
+                    var description = ConvertMethodNameToDescription(method.MethodName);
+                    sb.AppendLine($"| {codeCell} | {description} |");
+                }
+
+                sb.AppendLine();
+            }
+
+            // Integration section
+            sb.AppendLine(@"---
+
+## Integration
+
+### Visual Studio Code (`tasks.json`)
+
+Integrates with the Problems panel and runs with Ctrl+Shift+B.
+
+```json
+{
+  ""version"": ""2.0.0"",
+  ""tasks"": [
+    {
+      ""label"": ""UdonSharp Lint"",
+      ""type"": ""shell"",
+      ""command"": ""udonsharp-lint"",
+      ""args"": [""${workspaceFolder}/Assets""],
+      ""problemMatcher"": {
+        ""owner"": ""udonsharp"",
+        ""fileLocation"": [""relative"", ""${workspaceFolder}""],
+        ""pattern"": {
+          ""regexp"": ""^(.+)\\((\\d+),(\\d+)\\):\\s+(error|warning)\\s+UDON(\\d+):\\s+(.+)$"",
+          ""file"": 1,
+          ""line"": 2,
+          ""column"": 3,
+          ""severity"": 4,
+          ""code"": 5,
+          ""message"": 6
+        }
+      }
+    }
+  ]
+}
+```
+
+### GitHub Actions
+
+```yaml
+- name: Install UdonSharp Linter
+  run: dotnet tool install -g tktco.UdonSharpLinter
+
+- name: Run UdonSharp Linter
+  run: udonsharp-lint Assets --exclude-test-scripts
+```
+
+### mise (`mise.toml`)
+
+```toml
+[tasks.lint-udon]
+run = ""udonsharp-lint Assets""
+```
+
+---
+
+## License
+
+[MIT](LICENSE)");
+
+            return sb.ToString();
+        }
+
+        private static string GenerateJapaneseREADME(
+            Dictionary<int, ErrorCodeInfo> errorCodes,
+            Dictionary<string, List<CheckMethodInfo>> categorizedMethods)
+        {
+            var sb = new StringBuilder();
+
+            var categoryJa = new Dictionary<string, string>
+            {
+                { "Basic Language Features", "基本言語機能の制限" },
+                { "API and Attribute Restrictions", "API・属性の制限" },
+                { "Cross-file and Semantic Analysis", "クロスファイル・セマンティック解析" }
+            };
+
+            // ヘッダー + バッジ
+            sb.AppendLine("# UdonSharpLinterCLI");
+            sb.AppendLine();
+            sb.AppendLine("[![NuGet](https://img.shields.io/nuget/v/tktco.UdonSharpLinter)](https://www.nuget.org/packages/tktco.UdonSharpLinter)");
+            sb.AppendLine("[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)");
+            sb.AppendLine();
+            sb.AppendLine("🌐 **Language:** [English](README.md) | 日本語");
+            sb.AppendLine();
             sb.AppendLine("VRChat の UdonSharp スクリプトを対象とした静的コード解析ツールです。UdonSharp がサポートしていない言語機能・パターンをコンパイル前に検出します。");
             sb.AppendLine();
             sb.AppendLine("---");
@@ -461,9 +649,10 @@ path/to/file.cs(line,column): warning UDON###: Warning message
             {
                 if (!category.Value.Any()) continue;
 
-                sb.AppendLine($"### {category.Key}");
+                var heading = categoryJa.TryGetValue(category.Key, out var ja) ? ja : category.Key;
+                sb.AppendLine($"### {heading}");
                 sb.AppendLine();
-                sb.AppendLine("| Error Code | Description |");
+                sb.AppendLine("| エラーコード | 説明 |");
                 sb.AppendLine("|---|---|");
 
                 foreach (var method in category.Value.OrderBy(m => m.MethodName))
@@ -496,7 +685,7 @@ path/to/file.cs(line,column): warning UDON###: Warning message
                 sb.AppendLine();
             }
 
-            // 静的な部分（インテグレーション以降）
+            // インテグレーション
             sb.AppendLine(@"---
 
 ## インテグレーション
