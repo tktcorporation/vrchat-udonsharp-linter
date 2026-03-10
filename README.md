@@ -1,59 +1,31 @@
 # UdonSharpLinterCLI
 
-A static code analyzer for UdonSharp scripts in VRChat projects. This tool detects language features and patterns that are not supported by UdonSharp at compile time.
+[![NuGet](https://img.shields.io/nuget/v/tktco.UdonSharpLinter)](https://www.nuget.org/packages/tktco.UdonSharpLinter)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Features
+🌐 **Language:** English | [日本語](README.ja.md)
 
-UdonSharpLinterCLI performs comprehensive checks for UdonSharp restrictions, including:
+A static code analyzer for UdonSharp scripts in VRChat projects. Detects language features and patterns not supported by UdonSharp at compile time.
 
-### Basic Language Features
-- Async Await (UDON029)
-- Collection initializers (UDON008)
-- Constructors (UDON005)
-- Generic classes (UDON018)
-- Generic methods (UDON006)
-- Goto statements (UDON030)
-- Local functions (UDON003)
-- Multidimensional arrays (UDON009)
-- Nested types (UDON012)
-- Null Conditional Operators (UDON027)
-- Object initializers (UDON007)
-- Static fields (UDON011)
-- Throw statements (UDON002)
-- Try Catch statements (UDON001)
-
-### API and Attribute Restrictions
-- General Unexposed APIs (UDON019)
-- Interfaces (UDON017)
-- Method Overloads (UDON016)
-- Network Callable methods (UDON013)
-- Send Custom Event methods (UDON026)
-- Text Mesh Pro APIs (UDON014)
-
-### Cross-file and Semantic Analysis
-- Cross File Field Access (UDON020)
-- Cross File Method Invocation (UDON022)
-- Static Method Field Access (UDON021)
-- Udon Behaviour Serializable Class Usage (UDON025)
+---
 
 ## Installation
+
+> **Requirements:** .NET 6.0 or later
 
 ```bash
 dotnet tool install -g tktco.UdonSharpLinter
 ```
 
-## Usage
+### Update
 
 ```bash
-udonsharp-lint <directory_path> [--exclude-test-scripts]
+dotnet tool update -g tktco.UdonSharpLinter
 ```
 
-### Arguments
+---
 
-- `<directory_path>`: Path to the directory containing UdonSharp scripts to analyze
-- `--exclude-test-scripts`: (Optional) Exclude scripts in TestScripts, Tests, or Test directories
-
-### Examples
+## Quick Start
 
 ```bash
 # Analyze all UdonSharp scripts in Assets
@@ -63,29 +35,85 @@ udonsharp-lint Assets
 udonsharp-lint Assets --exclude-test-scripts
 ```
 
-## Output Format
+---
 
-The tool outputs errors and warnings in a standard compiler format:
+## Usage
+
+```
+udonsharp-lint <directory_path> [--exclude-test-scripts]
+```
+
+| Argument / Option | Description |
+|---|---|
+| `<directory_path>` | Path to the directory to analyze |
+| `--exclude-test-scripts` | Exclude `TestScripts` / `Tests` / `Test` directories |
+
+### Output Format
+
+Errors and warnings are reported in standard compiler format, compatible with most IDEs and CI/CD tools.
 
 ```
 path/to/file.cs(line,column): error UDON###: Error message
 path/to/file.cs(line,column): warning UDON###: Warning message
 ```
 
-This format is compatible with most IDEs and CI/CD tools.
+### Exit Codes
 
-## Exit Codes
+| Code | Meaning |
+|---|---|
+| `0` | No errors (warnings may be present) |
+| `1` | Errors found or execution failed |
 
-- `0`: No errors found (warnings may be present)
-- `1`: Errors found or execution failed
+---
 
-## Requirements
+## Checks
 
-- .NET 6.0 or later
+### Basic Language Features
 
-## Integration Examples
+| Error Code | Check |
+|---|---|
+| UDON029 | Async Await |
+| UDON008 | Collection initializers |
+| UDON005 | Constructors |
+| UDON018 | Generic classes |
+| UDON006 | Generic methods |
+| UDON030 | Goto statements |
+| UDON003 | Local functions |
+| UDON009 | Multidimensional arrays |
+| UDON012 | Nested types |
+| UDON027 | Null Conditional Operators |
+| UDON007 | Object initializers |
+| UDON011 | Static fields |
+| UDON002 | Throw statements |
+| UDON001 | Try Catch statements |
 
-### Visual Studio Code (tasks.json)
+### API and Attribute Restrictions
+
+| Error Code | Check |
+|---|---|
+| UDON019 | General Unexposed APIs |
+| UDON017 | Interfaces |
+| UDON016 | Method Overloads |
+| UDON013 | Network Callable methods |
+| UDON026 | Send Custom Event methods |
+| UDON014 | Text Mesh Pro APIs |
+
+### Cross-file and Semantic Analysis
+
+| Error Code | Check |
+|---|---|
+| UDON020 | Cross File Field Access |
+| UDON022 | Cross File Method Invocation |
+| UDON021 | Static Method Field Access |
+| UDON025 | Udon Behaviour Serializable Class Usage |
+
+---
+
+## Integration
+
+### Visual Studio Code (`tasks.json`)
+
+Integrates with the Problems panel and runs with Ctrl+Shift+B.
 
 ```json
 {
@@ -124,9 +152,15 @@ This format is compatible with most IDEs and CI/CD tools.
   run: udonsharp-lint Assets --exclude-test-scripts
 ```
 
-### mise (mise.toml)
+### mise (`mise.toml`)
 
 ```toml
 [tasks.lint-udon]
 run = "udonsharp-lint Assets"
 ```
+
+---
+
+## License
+
+[MIT](LICENSE)
