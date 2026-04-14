@@ -1,5 +1,28 @@
 # tktco.UdonSharpLinter
 
+## 0.4.0
+
+### Minor Changes
+
+- [#17](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/17) [`e92d528`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/e92d528423b61c7153e745d56356c1c87756a174) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Add detection for static field access on user-defined types (UDON031)
+
+  UdonSharp does not support static fields on user-defined types. This change adds detection for:
+
+  1. Static field access from UdonSharpBehaviour to user-defined types
+  2. Static field definitions in utility classes that are referenced from UdonSharp code
+
+  The following are still allowed:
+
+  - `const` fields (compile-time constants)
+  - `static readonly` fields
+  - Unity/VRC/System built-in type static fields
+
+  This fixes cases where utility classes (not inheriting UdonSharpBehaviour) define static fields and are referenced from UdonSharp code, which causes UdonSharp compilation errors.
+
+### Patch Changes
+
+- [#20](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/20) [`7843422`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/7843422e4e768ee6174b8e11804d18749d174972) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Improve README: move installation instructions to the top, use table format for error code listing, add badges and Japanese descriptions
+
 ## 0.3.1
 
 ### Patch Changes
