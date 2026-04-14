@@ -51,9 +51,12 @@ namespace tktco.UdonSharpLinter
             Console.WriteLine($"[UdonSharp Linter] Scanning directory: {directoryPath}");
 
             var csFiles = Directory.GetFiles(directoryPath, "*.cs", SearchOption.AllDirectories)
-                .Where(f => !f.Contains("\\Temp\\") && !f.Contains("\\Library\\") && !f.Contains("\\obj\\") && !f.Contains("\\bin\\"))
-                .Where(f => !f.Contains("\\Editor\\") && !f.Contains("\\editor\\")) // Exclude Editor scripts
-                .Where(f => !excludeTestScripts || (!f.Contains("\\TestScripts\\") && !f.Contains("\\Tests\\") && !f.Contains("\\Test\\"))) // Optionally exclude test scripts
+                .Where(f => !f.Contains("\\Temp\\") && !f.Contains("\\Library\\") && !f.Contains("\\obj\\") && !f.Contains("\\bin\\")
+                         && !f.Contains("/Temp/") && !f.Contains("/Library/") && !f.Contains("/obj/") && !f.Contains("/bin/"))
+                .Where(f => !f.Contains("\\Editor\\") && !f.Contains("\\editor\\")
+                         && !f.Contains("/Editor/") && !f.Contains("/editor/")) // Exclude Editor scripts
+                .Where(f => !excludeTestScripts || (!f.Contains("\\TestScripts\\") && !f.Contains("\\Tests\\") && !f.Contains("\\Test\\")
+                                                 && !f.Contains("/TestScripts/") && !f.Contains("/Tests/") && !f.Contains("/Test/"))) // Optionally exclude test scripts
                 .ToList();
 
             // Filter and process files in parallel

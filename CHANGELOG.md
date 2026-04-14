@@ -1,5 +1,15 @@
 # tktco.UdonSharpLinter
 
+## 0.3.1
+
+### Patch Changes
+
+- [#18](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/18) [`ce955fd`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/ce955fd3de4dab75a76251e4c2f47ff5c71cebce) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Fix false positives for Editor scripts on Unix/Linux systems
+
+  - Add support for Unix-style forward slash path separators (`/`) in addition to Windows-style backslashes (`\`)
+  - This fixes the issue where Editor scripts were incorrectly analyzed on non-Windows platforms
+  - Also applies the fix to Temp, Library, obj, bin, TestScripts, Tests, and Test directory exclusions
+
 ## 0.3.0
 
 ### Minor Changes
