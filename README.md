@@ -104,8 +104,10 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 |---|---|
 | UDON020 | Cross File Field Access |
 | UDON022 | Cross File Method Invocation |
+| UDON031 | Referenced Type Static fields |
 | UDON021 | Static Method Field Access |
 | UDON025 | Udon Behaviour Serializable Class Usage |
+| UDON031 | User Defined Type Static Field Access |
 
 ---
 

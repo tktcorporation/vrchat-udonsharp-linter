@@ -104,8 +104,10 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 |---|---|
 | UDON020 | 別ファイルで定義されたカスタムクラスのフィールドアクセスは非サポート |
 | UDON022 | 別ファイルで定義されたカスタムクラスのメソッド呼び出しをチェック |
+| UDON031 | UdonSharpから参照されるユーザー定義型内の静的フィールド定義は使用できません |
 | UDON021 | UdonSharpから呼び出される静的メソッド内でのカスタムクラスフィールドアクセスは非サポート |
 | UDON025 | UdonSharpBehaviour内での[System.Serializable]クラス使用をチェック（UDON025） |
+| UDON031 | ユーザー定義型の静的フィールドへのアクセスは使用できません |
 
 ---
 

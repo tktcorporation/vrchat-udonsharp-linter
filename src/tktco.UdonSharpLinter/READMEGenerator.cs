@@ -329,7 +329,8 @@ namespace tktco.UdonSharpLinter
             var semanticAnalysis = new HashSet<string>
             {
                 "CrossFileFieldAccess", "StaticMethodFieldAccess",
-                "CrossFileMethodInvocation", "UdonBehaviourSerializableClassUsage"
+                "CrossFileMethodInvocation", "UdonBehaviourSerializableClassUsage",
+                "UserDefinedTypeStaticFieldAccess"
             };
 
             foreach (var method in methods)
