@@ -2448,8 +2448,8 @@ namespace tktco.UdonSharpLinter
             foreach (var field in syncedFields)
             {
                 AddError(errors, filePath, field,
-                    "[UdonSynced] field found in a class with [UdonBehaviourSyncMode(BehaviourSyncMode.NoVariableSync)]. " +
-                    "Synced fields require Continuous or Manual sync mode.",
+                    $"[UdonSynced] field found in a class with [UdonBehaviourSyncMode({syncMode})], which forbids synced " +
+                    "fields entirely. Synced fields require Continuous or Manual sync mode.",
                     LintErrorCodes.SyncModeConflict);
             }
         }
