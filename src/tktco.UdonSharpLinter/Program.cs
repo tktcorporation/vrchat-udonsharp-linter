@@ -153,6 +153,55 @@ namespace tktco.UdonSharpLinter
             return _hasErrors ? 1 : 0;
         }
 
+        private static readonly Lazy<List<MetadataReference>> _trustedPlatformAssemblyReferences =
+            new Lazy<List<MetadataReference>>(LoadTrustedPlatformAssemblyReferences);
+
+        /// <summary>
+        /// .NETランタイムの信頼済みプラットフォームアセンブリ(BCL全体)を参照リストとして取得する。
+        /// typeof(X).Assemblyを個別に参照するだけでは、型転送されたBCL型(例: IEnumerable&lt;T&gt;)が
+        /// 解決できない場合があるため、実行中のランタイムが持つアセンブリ一覧を丸ごと利用する。
+        /// プロセス内で一度だけ読み込みキャッシュし、呼び出し元が結果に追加できるよう毎回コピーを返す
+        /// </summary>
+        private static List<MetadataReference> GetTrustedPlatformAssemblyReferences()
+        {
+            return new List<MetadataReference>(_trustedPlatformAssemblyReferences.Value);
+        }
+
+        private static List<MetadataReference> LoadTrustedPlatformAssemblyReferences()
+        {
+            var assemblyPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var trustedAssembliesPaths = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string;
+            if (!string.IsNullOrEmpty(trustedAssembliesPaths))
+            {
+                foreach (var path in trustedAssembliesPaths.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    assemblyPaths.Add(path);
+                }
+            }
+
+            // TRUSTED_PLATFORM_ASSEMBLIESが取得できない特殊なホスト環境向けのフォールバック:
+            // 現在のAssemblyLoadContextに読み込み済みのアセンブリも参照に加える
+            foreach (var assembly in System.Runtime.Loader.AssemblyLoadContext.Default.Assemblies)
+            {
+                if (!assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
+                {
+                    assemblyPaths.Add(assembly.Location);
+                }
+            }
+
+            if (assemblyPaths.Count == 0)
+            {
+                assemblyPaths.Add(typeof(object).Assembly.Location);
+                assemblyPaths.Add(typeof(Console).Assembly.Location);
+                assemblyPaths.Add(typeof(System.Linq.Enumerable).Assembly.Location);
+            }
+
+            return assemblyPaths
+                .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
+                .ToList();
+        }
+
         /// <summary>
         /// コンパイル情報を構築
         /// セマンティック解析に必要な型情報を提供
@@ -160,11 +209,10 @@ namespace tktco.UdonSharpLinter
         private static CSharpCompilation CreateCompilation(List<SyntaxTree> syntaxTrees)
         {
             // 基本的な参照アセンブリを追加
-            var references = new List<MetadataReference>
-            {
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            };
+            // .NET Core以降はBCLの型が複数のアセンブリに型転送されているため(例: IEnumerable<T>はSystem.Runtime)、
+            // typeof(object).Assembly等を個別に参照するだけでは不十分。ランタイムの信頼済みアセンブリを
+            // 一括で参照に加えることで、System.Linq等のBCL型をセマンティック解析(CheckLinqUsage)で正しく解決できるようにする
+            var references = GetTrustedPlatformAssemblyReferences();
 
             // Unity/UdonSharp参照アセンブリを追加（存在する場合）
             try
@@ -240,6 +288,13 @@ namespace tktco.UdonSharpLinter
                 CheckAsyncAwait(root, filePath, errors);
                 CheckGotoStatements(root, filePath, errors);
                 CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
+                CheckGenericCollectionTypes(root, filePath, errors);
+                CheckLinqUsage(root, filePath, errors, compilation);
+                CheckLambdaAndDelegates(root, filePath, errors);
+                CheckCoroutineUsage(root, filePath, errors);
+                CheckUIEventListenerRegistration(root, filePath, errors);
+                CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
+                CheckSynchronizationConstraints(root, filePath, errors);
 
                 // Report errors
                 foreach (var error in errors)
@@ -376,11 +431,12 @@ namespace tktco.UdonSharpLinter
         /// - 15: Removed - Properties are now supported in UdonSharp 1.0+
         /// - 28: Removed - Null coalescing operator (??) is now supported in UdonSharp
         ///
-        /// Error code ranges:
-        /// - 1-12, 18: Basic language feature restrictions
-        /// - 13-17, 19: API and attribute restrictions
-        /// - 20-25: Cross-file and semantic analysis
-        /// - 26-31: Additional language feature restrictions (SendCustomEvent, null operators, async/await, goto, user-defined type static field access)
+        /// Error code ranges (see README.md/README.ja.md "Checks" tables, regenerated via --generate-readme,
+        /// for the authoritative code-to-category mapping):
+        /// - Basic language feature restrictions: 1-9, 11, 12, 18, 27, 29, 30, 32-35
+        /// - API and attribute restrictions: 13, 14, 16, 17, 19, 26, 36, 37
+        /// - Cross-file and semantic analysis: 20-22, 25, 31
+        /// - Networking and synchronization: 38-41
         /// </summary>
         internal static class LintErrorCodes
         {
@@ -422,6 +478,22 @@ namespace tktco.UdonSharpLinter
             public const int AsyncAwait = 29;
             public const int GotoStatement = 30;
             public const int UserDefinedTypeStaticFieldAccess = 31;
+
+            // Additional language feature restrictions (from agent-skills-vrc-udon review)
+            public const int GenericCollectionType = 32;
+            public const int LinqUsage = 33;
+            public const int LambdaOrDelegate = 34;
+            public const int CoroutineUsage = 35;
+
+            // API and attribute restrictions
+            public const int UIEventListenerRegistration = 36;
+            public const int GenericGetComponentUdonBehaviour = 37;
+
+            // Networking and synchronization checks
+            public const int SyncModeConflict = 38;
+            public const int ManualSyncMissingRequestSerialization = 39;
+            public const int ExcessiveSyncedVariables = 40;
+            public const int LargeArraySynced = 41;
         }
 
         #endregion
@@ -475,6 +547,48 @@ namespace tktco.UdonSharpLinter
         {
             return member.AttributeLists.Any(al =>
                 al.Attributes.Any(a => a.Name.ToString().Contains(attributeName)));
+        }
+
+        /// <summary>
+        /// Helper method to get the [UdonBehaviourSyncMode(...)] argument text of a class, or null if absent
+        /// </summary>
+        private static string GetUdonBehaviourSyncMode(ClassDeclarationSyntax classDecl)
+        {
+            return classDecl.AttributeLists
+                .SelectMany(al => al.Attributes)
+                .FirstOrDefault(a => a.Name.ToString().Contains("UdonBehaviourSyncMode"))
+                ?.ArgumentList?.Arguments.FirstOrDefault()?.ToString();
+        }
+
+        /// <summary>
+        /// Helper method to check whether an invocation calls a method with the given bare name,
+        /// whether called unqualified (IdentifierNameSyntax) or via member access (MemberAccessExpressionSyntax)
+        /// </summary>
+        private static bool IsInvocationOf(InvocationExpressionSyntax invocation, string methodName)
+        {
+            return (invocation.Expression is IdentifierNameSyntax identifier && identifier.Identifier.Text == methodName) ||
+                   (invocation.Expression is MemberAccessExpressionSyntax member && member.Name.Identifier.Text == methodName);
+        }
+
+        /// <summary>
+        /// レシーバー式がUnityEventのフィールド命名規則(onClick, onValueChangedなど)に一致するか判定する。
+        /// `button.onClick`のようなメンバーアクセスと、`onReady`のように直接公開されたフィールド/プロパティの両方を許容する
+        /// </summary>
+        private static bool IsUnityEventLikeReceiver(ExpressionSyntax receiver)
+        {
+            return (receiver is IdentifierNameSyntax identifier && identifier.Identifier.Text.StartsWith("on", StringComparison.OrdinalIgnoreCase)) ||
+                   (receiver is MemberAccessExpressionSyntax member && member.Name.Identifier.Text.StartsWith("on", StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// 呼び出しのレシーバーが暗黙のthis、明示的な`this.`、または`base.`であるか判定する
+        /// (他のオブジェクトに対する呼び出し、例: other.RequestSerialization()を除外するため)
+        /// </summary>
+        private static bool IsSelfReceiverInvocation(InvocationExpressionSyntax invocation)
+        {
+            return invocation.Expression is IdentifierNameSyntax ||
+                   (invocation.Expression is MemberAccessExpressionSyntax member &&
+                    (member.Expression is ThisExpressionSyntax || member.Expression is BaseExpressionSyntax));
         }
 
         #endregion
@@ -2185,6 +2299,365 @@ namespace tktco.UdonSharpLinter
             }
         }
 
+        private static readonly HashSet<string> BannedGenericCollectionNames = new HashSet<string> { "List", "Dictionary", "HashSet", "Queue", "Stack" };
+
+        /// <summary>
+        /// UdonSharp制約: ジェネリックコレクション型は使用できません
+        ///
+        /// Udonは`List&lt;T&gt;`, `Dictionary&lt;K,V&gt;`, `HashSet&lt;T&gt;`, `Queue&lt;T&gt;`, `Stack&lt;T&gt;`をサポートしていません。
+        /// 代わりに配列、またはVRChatが提供する`DataList`/`DataDictionary`を使用してください。
+        ///
+        /// 例:
+        /// NG: private List&lt;int&gt; _scores = new List&lt;int&gt;();
+        /// OK: private int[] _scores;
+        /// OK: private DataList _scores = new DataList();
+        /// </summary>
+        private static void CheckGenericCollectionTypes(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            var genericNames = root.DescendantNodes().OfType<GenericNameSyntax>()
+                .Where(g => BannedGenericCollectionNames.Contains(g.Identifier.Text));
+
+            foreach (var generic in genericNames)
+            {
+                AddError(errors, filePath, generic,
+                    $"Generic collection type '{generic.Identifier.Text}<T>' is not supported in UdonSharp. " +
+                    $"Use an array or VRChat's DataList/DataDictionary instead.",
+                    LintErrorCodes.GenericCollectionType);
+            }
+        }
+
+        private const string LinqUsageMessage = "LINQ (System.Linq) is not supported in UdonSharp. Use a manual loop over the array instead.";
+
+        /// <summary>
+        /// UdonSharp制約: LINQは使用できません
+        ///
+        /// UdonはSystem.Linq名前空間（`.Where`, `.Select`など）をサポートしていません。
+        /// 配列に対する手動のforループで代替してください。
+        ///
+        /// 例:
+        /// NG: using System.Linq;
+        /// OK: foreach (var item in items) { if (condition) { ... } }
+        /// </summary>
+        private static void CheckLinqUsage(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
+        {
+            // テキスト上の完全修飾呼び出しに加え、セマンティックモデルでSystem.Linqの拡張メソッドとして
+            // 解決される呼び出し(namespace alias, global using, 修飾なしの拡張メソッド構文など)も検出する
+            var semanticModel = compilation.GetSemanticModel(root.SyntaxTree);
+
+            foreach (var node in root.DescendantNodes())
+            {
+                if (node is UsingDirectiveSyntax usingDirective && usingDirective.Name != null &&
+                    IsLinqNamespaceText(usingDirective.Name.ToString()))
+                {
+                    AddError(errors, filePath, usingDirective, LinqUsageMessage, LintErrorCodes.LinqUsage);
+                }
+                else if (node is InvocationExpressionSyntax invocation &&
+                    (IsLinqNamespaceText(invocation.Expression.ToString()) ||
+                     ResolvesToLinqMethod(invocation, semanticModel)))
+                {
+                    AddError(errors, filePath, invocation, LinqUsageMessage, LintErrorCodes.LinqUsage);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 呼び出しがSystem.Linqのメソッドとして解決されるか判定する。
+        /// オーバーロード解決の曖昧さ等でSymbolがnullになる場合は、CandidateSymbolsもフォールバックとして確認する
+        /// (例: LINQのWhereと同名・同シグネチャの拡張メソッドが別の名前空間にも存在する場合)
+        /// </summary>
+        private static bool ResolvesToLinqMethod(InvocationExpressionSyntax invocation, SemanticModel semanticModel)
+        {
+            var symbolInfo = semanticModel.GetSymbolInfo(invocation);
+            IEnumerable<ISymbol> candidates = symbolInfo.Symbol != null
+                ? new ISymbol[] { symbolInfo.Symbol }
+                : symbolInfo.CandidateSymbols;
+
+            return candidates.OfType<IMethodSymbol>()
+                .Any(m => m.ContainingType?.ContainingNamespace?.ToDisplayString() == "System.Linq");
+        }
+
+        /// <summary>
+        /// 名前空間参照テキストがSystem.Linq(のサブ名前空間)を指しているか判定する。
+        /// global::プレフィックスを許容し、System.Linq.Expressions等の無関係な名前空間は除外する。
+        /// </summary>
+        private static bool IsLinqNamespaceText(string namespaceText)
+        {
+            const string globalPrefix = "global::";
+            var normalized = namespaceText.StartsWith(globalPrefix)
+                ? namespaceText.Substring(globalPrefix.Length)
+                : namespaceText;
+
+            return (normalized == "System.Linq" || normalized.StartsWith("System.Linq.")) &&
+                   normalized != "System.Linq.Expressions" &&
+                   !normalized.StartsWith("System.Linq.Expressions.");
+        }
+
+        /// <summary>
+        /// UdonSharp制約: ラムダ式、delegate、C#イベントは使用できません
+        ///
+        /// Udonはラムダ式(`=&gt;`)、`delegate`宣言、C#標準の`event`キーワードをサポートしていません。
+        /// 名前付きのprivateメソッドや、UdonSharpのSendCustomEvent系APIで代替してください。
+        ///
+        /// 例:
+        /// NG: items.ForEach(x =&gt; DoSomething(x));
+        /// NG: public delegate void MyDelegate();
+        /// NG: public event Action OnSomething;
+        /// OK: private void DoSomething(int x) { ... }
+        /// </summary>
+        private static void CheckLambdaAndDelegates(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            foreach (var node in root.DescendantNodes())
+            {
+                switch (node)
+                {
+                    case SimpleLambdaExpressionSyntax _:
+                    case ParenthesizedLambdaExpressionSyntax _:
+                    case AnonymousMethodExpressionSyntax _:
+                        AddError(errors, filePath, node,
+                            "Lambda expressions are not supported in UdonSharp. Use a named private method instead.",
+                            LintErrorCodes.LambdaOrDelegate);
+                        break;
+                    case DelegateDeclarationSyntax _:
+                        AddError(errors, filePath, node,
+                            "Delegate declarations are not supported in UdonSharp.",
+                            LintErrorCodes.LambdaOrDelegate);
+                        break;
+                    case EventDeclarationSyntax _:
+                    case EventFieldDeclarationSyntax _:
+                        AddError(errors, filePath, node,
+                            "C# events are not supported in UdonSharp. Use SendCustomEvent/SendCustomNetworkEvent instead.",
+                            LintErrorCodes.LambdaOrDelegate);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// UdonSharp制約: コルーチン（yield return / StartCoroutine）は使用できません
+        ///
+        /// Udonは標準のUnityコルーチン機構をサポートしていません。
+        /// 時間差実行が必要な場合は、SendCustomEventDelayedSeconds/SendCustomEventDelayedFramesを使用してください。
+        ///
+        /// 例:
+        /// NG: yield return new WaitForSeconds(1f);
+        /// NG: StartCoroutine(MyCoroutine());
+        /// OK: SendCustomEventDelayedSeconds(nameof(MyMethod), 1f);
+        /// </summary>
+        private static void CheckCoroutineUsage(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            const string message = "Coroutines are not supported in UdonSharp. Use SendCustomEventDelayedSeconds/SendCustomEventDelayedFrames instead.";
+
+            foreach (var node in root.DescendantNodes())
+            {
+                if (node is YieldStatementSyntax)
+                {
+                    AddError(errors, filePath, node, message, LintErrorCodes.CoroutineUsage);
+                }
+                else if (node is InvocationExpressionSyntax invocation &&
+                    (IsInvocationOf(invocation, "StartCoroutine") ||
+                     IsInvocationOf(invocation, "StopCoroutine") ||
+                     IsInvocationOf(invocation, "StopAllCoroutines")))
+                {
+                    AddError(errors, filePath, invocation, message, LintErrorCodes.CoroutineUsage);
+                }
+            }
+        }
+
+        /// <summary>
+        /// UdonSharp制約: UnityEvent.AddListener()によるランタイム登録は使用できません
+        ///
+        /// `Button.onClick.AddListener()`のようなコードからのイベントハンドラ登録はUdonSharpのメソッドを
+        /// 正しく呼び出せません。Unityエディタのインスペクターから、対象のUdonBehaviourの
+        /// SendCustomEventを呼び出すよう設定してください。
+        ///
+        /// 例:
+        /// NG: button.onClick.AddListener(OnButtonClick);
+        /// OK: インスペクターのOnClickイベントでUdonBehaviour.SendCustomEventを設定する
+        /// </summary>
+        private static void CheckUIEventListenerRegistration(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            // UnityEventのフィールド命名規則(onClick, onValueChangedなど)に一致するレシーバー経由の
+            // AddListener呼び出しのみを対象にし、無関係な独自メソッド(例: manager.AddListener(id))への
+            // 誤検知を避ける。レシーバーは`button.onClick`のようなメンバーアクセスだけでなく、
+            // `onReady`のようにUnityEventが直接フィールド/プロパティとして公開されている場合も対象にする
+            var addListenerInvocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                .Where(inv => IsInvocationOf(inv, "AddListener") &&
+                              inv.Expression is MemberAccessExpressionSyntax member &&
+                              IsUnityEventLikeReceiver(member.Expression));
+
+            foreach (var invocation in addListenerInvocations)
+            {
+                AddError(errors, filePath, invocation,
+                    "UnityEvent.AddListener() cannot reliably register UdonSharp methods at runtime. " +
+                    "Wire the event to a SendCustomEvent call from the Inspector instead.",
+                    LintErrorCodes.UIEventListenerRegistration);
+            }
+        }
+
+        /// <summary>
+        /// UdonSharp制約: GetComponent&lt;UdonBehaviour&gt;()は使用できません
+        ///
+        /// 低レベルの`UdonBehaviour`型に対するジェネリック版GetComponentは非対応です。
+        /// `(UdonBehaviour)GetComponent(typeof(UdonBehaviour))`を使用してください。
+        /// なお、UdonSharpBehaviourを継承したクラスに対するGetComponent&lt;T&gt;()はSDK 3.8+でサポートされています。
+        ///
+        /// 例:
+        /// NG: var udon = GetComponent&lt;UdonBehaviour&gt;();
+        /// OK: var udon = (UdonBehaviour)GetComponent(typeof(UdonBehaviour));
+        /// </summary>
+        private static void CheckGenericGetComponentUdonBehaviour(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            var genericGetComponents = root.DescendantNodes().OfType<GenericNameSyntax>()
+                .Where(g => g.Identifier.Text == "GetComponent" &&
+                            g.TypeArgumentList.Arguments.Count == 1 &&
+                            GetRightmostTypeName(g.TypeArgumentList.Arguments[0]) == "UdonBehaviour");
+
+            foreach (var generic in genericGetComponents)
+            {
+                AddError(errors, filePath, generic,
+                    "GetComponent<UdonBehaviour>() is not supported. Use (UdonBehaviour)GetComponent(typeof(UdonBehaviour)) instead.",
+                    LintErrorCodes.GenericGetComponentUdonBehaviour, DiagnosticSeverity.Warning);
+            }
+        }
+
+        /// <summary>
+        /// 型テキストの最後のドット区切りセグメントを取得する(例: "global::VRC.Udon.UdonBehaviour" -&gt; "UdonBehaviour")
+        /// </summary>
+        private static string GetRightmostTypeName(TypeSyntax type)
+        {
+            return GetRightmostDottedSegment(type.ToString());
+        }
+
+        /// <summary>
+        /// テキストの最後のドット区切りセグメントを取得する(例: "BehaviourSyncMode.None" -&gt; "None")
+        /// </summary>
+        private static string GetRightmostDottedSegment(string text)
+        {
+            var lastDotIndex = text.LastIndexOf('.');
+            return lastDotIndex >= 0 ? text.Substring(lastDotIndex + 1) : text;
+        }
+
+        /// <summary>
+        /// UdonSharp制約: ネットワーク同期変数([UdonSynced])の設定ミスや非効率なパターンを検出します
+        ///
+        /// 以下を検証します：
+        /// - NoVariableSync（同期なし）モードのビヘイビアに[UdonSynced]フィールドがある（設定の矛盾）
+        /// - Manual同期モードで[UdonSynced]フィールドがあるのにRequestSerialization()が一度も呼ばれていない
+        /// - 1つのビヘイビアあたりの[UdonSynced]フィールド数が多すぎる（ネットワーク帯域の目安を超過）
+        /// - int[]/float[]型の同期変数（byte[]/short[]等よりも多くの帯域を消費する）
+        ///
+        /// 例:
+        /// NG: [UdonBehaviourSyncMode(BehaviourSyncMode.NoVariableSync)]付きクラスに[UdonSynced]フィールドがある
+        /// NG: Manual同期でRequestSerialization()を一度も呼ばない
+        /// OK: 同期変数は必要最小限に絞り、Manual同期では変更後にRequestSerialization()を呼ぶ
+        /// </summary>
+        private static void CheckSynchronizationConstraints(SyntaxNode root, string filePath, List<LintError> errors)
+        {
+            var classes = FindUdonSharpBehaviourClasses(root);
+
+            foreach (var classDecl in classes)
+            {
+                var syncMode = GetUdonBehaviourSyncMode(classDecl);
+                var syncedFields = classDecl.Members.OfType<FieldDeclarationSyntax>()
+                    .Where(f => HasAttribute(f, "UdonSynced"))
+                    .ToList();
+
+                CheckSyncModeConflict(syncMode, syncedFields, filePath, errors);
+                CheckManualSyncMissingRequestSerialization(classDecl, syncMode, syncedFields, filePath, errors);
+                CheckExcessiveSyncedVariables(classDecl, syncedFields, filePath, errors);
+                CheckLargeArraySynced(syncedFields, filePath, errors);
+            }
+        }
+
+        /// <summary>
+        /// syncModeテキストがNone/NoVariableSync(同期変数を禁止するモード)を指しているか判定する。
+        /// 完全修飾名(BehaviourSyncMode.None)、using static等による裸名(None)の両方を許容する。
+        /// </summary>
+        private static bool IsNoSyncMode(string syncMode)
+        {
+            var bareName = GetRightmostDottedSegment(syncMode);
+            return bareName == "None" || bareName == "NoVariableSync";
+        }
+
+        private static void CheckSyncModeConflict(string syncMode,
+            List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
+        {
+            if (syncMode == null || !IsNoSyncMode(syncMode))
+                return;
+
+            foreach (var field in syncedFields)
+            {
+                foreach (var variable in field.Declaration.Variables)
+                {
+                    AddError(errors, filePath, variable,
+                        $"[UdonSynced] field found in a class with [UdonBehaviourSyncMode({syncMode})], which forbids synced " +
+                        "fields entirely. Synced fields require Continuous or Manual sync mode.",
+                        LintErrorCodes.SyncModeConflict);
+                }
+            }
+        }
+
+        private static void CheckManualSyncMissingRequestSerialization(ClassDeclarationSyntax classDecl, string syncMode,
+            List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
+        {
+            if (syncMode == null || !syncMode.Contains("Manual") || !syncedFields.Any())
+                return;
+
+            bool callsRequestSerialization = classDecl.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                .Any(inv => IsInvocationOf(inv, "RequestSerialization") && IsSelfReceiverInvocation(inv));
+
+            if (!callsRequestSerialization)
+            {
+                AddError(errors, filePath, syncedFields.First(),
+                    "Manual sync mode with [UdonSynced] fields requires an explicit RequestSerialization() call to send updates to other players.",
+                    LintErrorCodes.ManualSyncMissingRequestSerialization, DiagnosticSeverity.Warning);
+            }
+        }
+
+        private const int RecommendedMaxSyncedFieldCount = 8;
+
+        private static void CheckExcessiveSyncedVariables(ClassDeclarationSyntax classDecl,
+            List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
+        {
+            // 1つのFieldDeclarationSyntaxに複数変数が含まれる場合(例: [UdonSynced] int a, b, c;)があるため、
+            // 宣言数ではなく変数数を数える
+            int syncedVariableCount = syncedFields.Sum(f => f.Declaration.Variables.Count);
+
+            if (syncedVariableCount > RecommendedMaxSyncedFieldCount)
+            {
+                AddError(errors, filePath, classDecl,
+                    $"This behaviour has {syncedVariableCount} [UdonSynced] variables. Consider keeping synced data under " +
+                    $"~{RecommendedMaxSyncedFieldCount} variables per behaviour to reduce network bandwidth usage.",
+                    LintErrorCodes.ExcessiveSyncedVariables, DiagnosticSeverity.Warning);
+            }
+        }
+
+        private static readonly HashSet<string> LargeSyncedArrayElementTypes = new HashSet<string>
+        {
+            "int", "Int32", "System.Int32",
+            "float", "Single", "System.Single"
+        };
+
+        private static void CheckLargeArraySynced(List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
+        {
+            foreach (var field in syncedFields)
+            {
+                if (!(field.Declaration.Type is ArrayTypeSyntax arrayType) ||
+                    !LargeSyncedArrayElementTypes.Contains(arrayType.ElementType.ToString()))
+                {
+                    continue;
+                }
+
+                foreach (var variable in field.Declaration.Variables)
+                {
+                    AddError(errors, filePath, variable,
+                        $"Synced array of type '{arrayType.ElementType}[]' uses more network bandwidth than necessary. " +
+                        $"Consider 'byte[]' or 'short[]' if the value range allows it.",
+                        LintErrorCodes.LargeArraySynced, DiagnosticSeverity.Warning);
+                }
+            }
+        }
+
         /// <summary>
         /// ユーザー定義型かどうかを判定
         /// Unity/VRC/System組み込み型を除外
@@ -2247,11 +2720,7 @@ namespace tktco.UdonSharpLinter
             var tree = CSharpSyntaxTree.ParseText(sourceCode, path: filePath);
             var root = tree.GetRoot();
 
-            var references = new List<MetadataReference>
-            {
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            };
+            var references = GetTrustedPlatformAssemblyReferences();
 
             var compilation = CSharpCompilation.Create(
                 "TestCompilation",
@@ -2291,6 +2760,13 @@ namespace tktco.UdonSharpLinter
             CheckAsyncAwait(root, filePath, errors);
             CheckGotoStatements(root, filePath, errors);
             CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
+            CheckGenericCollectionTypes(root, filePath, errors);
+            CheckLinqUsage(root, filePath, errors, compilation);
+            CheckLambdaAndDelegates(root, filePath, errors);
+            CheckCoroutineUsage(root, filePath, errors);
+            CheckUIEventListenerRegistration(root, filePath, errors);
+            CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
+            CheckSynchronizationConstraints(root, filePath, errors);
 
             return errors;
         }

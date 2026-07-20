@@ -304,7 +304,8 @@ namespace tktco.UdonSharpLinter
             {
                 { "Basic Language Features", new List<CheckMethodInfo>() },
                 { "API and Attribute Restrictions", new List<CheckMethodInfo>() },
-                { "Cross-file and Semantic Analysis", new List<CheckMethodInfo>() }
+                { "Cross-file and Semantic Analysis", new List<CheckMethodInfo>() },
+                { "Networking and Synchronization", new List<CheckMethodInfo>() }
             };
             var skippedMethods = new HashSet<string>();
 
@@ -319,18 +320,25 @@ namespace tktco.UdonSharpLinter
                 "TryCatch", "Throw", "LocalFunction", "Constructor", "GenericMethod",
                 "ObjectInitializer", "CollectionInitializer", "MultidimensionalArray",
                 "StaticField", "NestedType", "GenericClass",
-                "NullConditionalOperator", "AsyncAwait", "GotoStatement"
+                "NullConditionalOperator", "AsyncAwait", "GotoStatement",
+                "GenericCollectionType", "LinqUsage", "LambdaOrDelegate", "CoroutineUsage"
             };
             var apiRestrictions = new HashSet<string>
             {
                 "NetworkCallable", "TextMeshProAPI", "MethodOverload",
-                "Interface", "UnexposedAPI", "SendCustomEventMethodNotFound"
+                "Interface", "UnexposedAPI", "SendCustomEventMethodNotFound",
+                "UIEventListenerRegistration", "GenericGetComponentUdonBehaviour"
             };
             var semanticAnalysis = new HashSet<string>
             {
                 "CrossFileFieldAccess", "StaticMethodFieldAccess",
                 "CrossFileMethodInvocation", "UdonBehaviourSerializableClassUsage",
                 "UserDefinedTypeStaticFieldAccess"
+            };
+            var networkingSync = new HashSet<string>
+            {
+                "SyncModeConflict", "ManualSyncMissingRequestSerialization",
+                "ExcessiveSyncedVariables", "LargeArraySynced"
             };
 
             foreach (var method in methods)
@@ -356,6 +364,10 @@ namespace tktco.UdonSharpLinter
                 else if (method.ErrorCodeNames.Any(name => semanticAnalysis.Contains(name)))
                 {
                     categories["Cross-file and Semantic Analysis"].Add(method);
+                }
+                else if (method.ErrorCodeNames.Any(name => networkingSync.Contains(name)))
+                {
+                    categories["Networking and Synchronization"].Add(method);
                 }
             }
 
@@ -568,7 +580,8 @@ run = ""udonsharp-lint Assets""
             {
                 { "Basic Language Features", "基本言語機能の制限" },
                 { "API and Attribute Restrictions", "API・属性の制限" },
-                { "Cross-file and Semantic Analysis", "クロスファイル・セマンティック解析" }
+                { "Cross-file and Semantic Analysis", "クロスファイル・セマンティック解析" },
+                { "Networking and Synchronization", "ネットワーキング・同期" }
             };
 
             // ヘッダー + バッジ
