@@ -215,33 +215,8 @@ namespace tktco.UdonSharpLinter
             var references = GetTrustedPlatformAssemblyReferences();
 
             // Unity/UdonSharp参照アセンブリを追加（存在する場合）
-            try
-            {
-                // UnityEngine.dll
-                var unityEnginePath = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies", "UnityEngine.dll");
-                if (File.Exists(unityEnginePath))
-                {
-                    references.Add(MetadataReference.CreateFromFile(unityEnginePath));
-                }
-
-                // VRChat SDK
-                var vrcSdkPath = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies", "VRC.SDKBase.dll");
-                if (File.Exists(vrcSdkPath))
-                {
-                    references.Add(MetadataReference.CreateFromFile(vrcSdkPath));
-                }
-
-                // UdonSharp Runtime
-                var udonSharpPath = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies", "UdonSharp.Runtime.dll");
-                if (File.Exists(udonSharpPath))
-                {
-                    references.Add(MetadataReference.CreateFromFile(udonSharpPath));
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Warning] Could not load Unity assemblies: {ex.Message}");
-            }
+            var scriptAssembliesDir = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies");
+            references.AddRange(LoadUnityAssemblyReferences(scriptAssembliesDir));
 
             return CSharpCompilation.Create(
                 "UdonSharpLinter",
@@ -249,6 +224,37 @@ namespace tktco.UdonSharpLinter
                 references,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
             );
+        }
+
+        /// <summary>
+        /// Library/ScriptAssemblies配下の*.dllを全て走査し、参照アセンブリとして読み込む。
+        /// 近年のUnity(2018.1+)はUnityEngine/VRC SDKをモジュールごとに多数のDLL
+        /// (UnityEngine.CoreModule.dll、VRC.Udon.dll等)へ分割しているため、
+        /// 特定のファイル名だけを決め打ちで探すと実際のプロジェクトではほぼヒットしない。
+        /// 個別のDLLが不正/読み込み不可でも他のDLLの読み込みを妨げないよう、ファイル単位でエラーを捕捉する
+        /// </summary>
+        internal static List<MetadataReference> LoadUnityAssemblyReferences(string scriptAssembliesDir)
+        {
+            var references = new List<MetadataReference>();
+
+            if (!Directory.Exists(scriptAssembliesDir))
+            {
+                return references;
+            }
+
+            foreach (var dllPath in Directory.GetFiles(scriptAssembliesDir, "*.dll"))
+            {
+                try
+                {
+                    references.Add(MetadataReference.CreateFromFile(dllPath));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Warning] Could not load assembly {dllPath}: {ex.Message}");
+                }
+            }
+
+            return references;
         }
 
         private static void LintFile(string filePath, SyntaxTree tree, CSharpCompilation compilation, Dictionary<string, HashSet<string>> callGraph)
