@@ -348,6 +348,27 @@ public class TestBehaviour : UdonSharpBehaviour
         Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.CoroutineUsage);
     }
 
+    [Theory]
+    [InlineData("StopCoroutine(myCoroutine);")]
+    [InlineData("StopAllCoroutines();")]
+    public void CoroutineCancellationApi_ReportsError(string statement)
+    {
+        var code = $@"
+using UdonSharp;
+
+public class TestBehaviour : UdonSharpBehaviour
+{{
+    private object myCoroutine;
+
+    public void Start()
+    {{
+        {statement}
+    }}
+}}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.CoroutineUsage);
+    }
+
     [Fact]
     public void NoCoroutine_NoError()
     {

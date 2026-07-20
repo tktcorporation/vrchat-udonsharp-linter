@@ -2453,7 +2453,10 @@ namespace tktco.UdonSharpLinter
                 {
                     AddError(errors, filePath, node, message, LintErrorCodes.CoroutineUsage);
                 }
-                else if (node is InvocationExpressionSyntax invocation && IsInvocationOf(invocation, "StartCoroutine"))
+                else if (node is InvocationExpressionSyntax invocation &&
+                    (IsInvocationOf(invocation, "StartCoroutine") ||
+                     IsInvocationOf(invocation, "StopCoroutine") ||
+                     IsInvocationOf(invocation, "StopAllCoroutines")))
                 {
                     AddError(errors, filePath, invocation, message, LintErrorCodes.CoroutineUsage);
                 }
