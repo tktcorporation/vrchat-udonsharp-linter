@@ -75,9 +75,13 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 | UDON029 | Async Await |
 | UDON008 | Collection initializers |
 | UDON005 | Constructors |
+| UDON035 | Coroutine Usage |
 | UDON018 | Generic classes |
+| UDON032 | Generic Collection types |
 | UDON006 | Generic methods |
 | UDON030 | Goto statements |
+| UDON034 | Lambda And Delegates |
+| UDON033 | Linq Usage |
 | UDON003 | Local functions |
 | UDON009 | Multidimensional arrays |
 | UDON012 | Nested types |
@@ -92,11 +96,13 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 | Error Code | Check |
 |---|---|
 | UDON019 | General Unexposed APIs |
+| UDON037 | Generic Get Component Udon Behaviour |
 | UDON017 | Interfaces |
 | UDON016 | Method Overloads |
 | UDON013 | Network Callable methods |
 | UDON026 | Send Custom Event methods |
 | UDON014 | Text Mesh Pro APIs |
+| UDON036 | UIEvent Listener Registration |
 
 ### Cross-file and Semantic Analysis
 
@@ -108,6 +114,12 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 | UDON021 | Static Method Field Access |
 | UDON025 | Udon Behaviour Serializable Class Usage |
 | UDON031 | User Defined Type Static Field Access |
+
+### Networking and Synchronization
+
+| Error Code | Check |
+|---|---|
+| UDON038, UDON039, UDON040, UDON041 | Synchronization Constraints |
 
 ---
 

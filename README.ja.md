@@ -75,9 +75,13 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 | UDON029 | async/await は使用できません |
 | UDON008 | コレクション初期化子は使用できません |
 | UDON005 | コンストラクタは使用できません |
+| UDON035 | コルーチン（yield return / StartCoroutine）は使用できません |
 | UDON018 | ジェネリッククラスは使用できません |
+| UDON032 | ジェネリックコレクション型は使用できません |
 | UDON006 | ジェネリックメソッドは使用できません |
 | UDON030 | goto文およびラベル文は使用できません |
+| UDON034 | ラムダ式、delegate、C#イベントは使用できません |
+| UDON033 | LINQは使用できません |
 | UDON003 | ローカル関数は使用できません |
 | UDON009 | 多次元配列は使用できません |
 | UDON012 | ネストした型は使用できません |
@@ -92,11 +96,13 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 | エラーコード | 説明 |
 |---|---|
 | UDON019 | Udonに公開されていない一般的なAPIの使用を検出します |
+| UDON037 | GetComponent<UdonBehaviour>()は使用できません |
 | UDON017 | インターフェースの実装は使用できません |
 | UDON016 | メソッドオーバーロードは使用できません |
 | UDON013 | [NetworkCallable]属性付きメソッドには厳しい制約があります |
 | UDON026 | SendCustomEvent系メソッドで指定したメソッド名が存在するか検証 |
 | UDON014 | TextMeshProの未公開APIの使用を検出します |
+| UDON036 | UnityEvent.AddListener()によるランタイム登録は使用できません |
 
 ### クロスファイル・セマンティック解析
 
@@ -108,6 +114,12 @@ path/to/file.cs(line,column): warning UDON###: Warning message
 | UDON021 | UdonSharpから呼び出される静的メソッド内でのカスタムクラスフィールドアクセスは非サポート |
 | UDON025 | UdonSharpBehaviour内での[System.Serializable]クラス使用をチェック（UDON025） |
 | UDON031 | ユーザー定義型の静的フィールドへのアクセスは使用できません |
+
+### ネットワーキング・同期
+
+| エラーコード | 説明 |
+|---|---|
+| UDON038, UDON039, UDON040, UDON041 | ネットワーク同期変数([UdonSynced])の設定ミスや非効率なパターンを検出します |
 
 ---
 
