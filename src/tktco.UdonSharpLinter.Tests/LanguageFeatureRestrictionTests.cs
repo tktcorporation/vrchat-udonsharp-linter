@@ -144,6 +144,28 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void LinqExtensionMethodChain_ReportsErrorsForEachResolvedCall()
+    {
+        var code = @"
+using UdonSharp;
+using System.Linq;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+        int[] values = new int[] { 1, 2, 3 };
+        var result = values.Where(x => x > 0).ToArray();
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        var linqErrors = errors.FindAll(e => e.Code == Program.LintErrorCodes.LinqUsage);
+        // usingディレクティブに加え、セマンティックモデルでSystem.Linqと解決されたWhere/ToArray呼び出しも
+        // それぞれ検出されるはず
+        Assert.True(linqErrors.Count >= 3, $"Expected at least 3 LINQ errors, got {linqErrors.Count}");
+    }
+
+    [Fact]
     public void NoLinqUsingDirective_NoError()
     {
         var code = @"
@@ -322,6 +344,50 @@ public class TestBehaviour : UdonSharpBehaviour
     public void Start()
     {
         button.onClick.AddListener(OnClick);
+    }
+
+    private void OnClick() { }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.UIEventListenerRegistration);
+    }
+
+    [Fact]
+    public void DirectUnityEventFieldAddListener_ReportsError()
+    {
+        var code = @"
+using UdonSharp;
+using UnityEngine.Events;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public UnityEvent onReady;
+
+    public void Start()
+    {
+        onReady.AddListener(OnReady);
+    }
+
+    private void OnReady() { }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.UIEventListenerRegistration);
+    }
+
+    [Fact]
+    public void PascalCaseUnityEventAddListener_ReportsError()
+    {
+        var code = @"
+using UdonSharp;
+using UnityEngine.UI;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public Button button;
+
+    public void Start()
+    {
+        button.OnClick.AddListener(OnClick);
     }
 
     private void OnClick() { }

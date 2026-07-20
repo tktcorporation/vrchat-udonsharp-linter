@@ -154,17 +154,41 @@ namespace tktco.UdonSharpLinter
         }
 
         /// <summary>
+        /// .NETランタイムの信頼済みプラットフォームアセンブリ(BCL全体)を参照リストとして取得する。
+        /// typeof(X).Assemblyを個別に参照するだけでは、型転送されたBCL型(例: IEnumerable&lt;T&gt;)が
+        /// 解決できない場合があるため、実行中のランタイムが持つアセンブリ一覧を丸ごと利用する
+        /// </summary>
+        private static List<MetadataReference> GetTrustedPlatformAssemblyReferences()
+        {
+            var trustedAssembliesPaths = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string;
+            if (string.IsNullOrEmpty(trustedAssembliesPaths))
+            {
+                return new List<MetadataReference>
+                {
+                    MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                    MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
+                    MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
+                };
+            }
+
+            return trustedAssembliesPaths
+                .Split(Path.PathSeparator)
+                .Where(path => !string.IsNullOrEmpty(path))
+                .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
+                .ToList();
+        }
+
+        /// <summary>
         /// コンパイル情報を構築
         /// セマンティック解析に必要な型情報を提供
         /// </summary>
         private static CSharpCompilation CreateCompilation(List<SyntaxTree> syntaxTrees)
         {
             // 基本的な参照アセンブリを追加
-            var references = new List<MetadataReference>
-            {
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            };
+            // .NET Core以降はBCLの型が複数のアセンブリに型転送されているため(例: IEnumerable<T>はSystem.Runtime)、
+            // typeof(object).Assembly等を個別に参照するだけでは不十分。ランタイムの信頼済みアセンブリを
+            // 一括で参照に加えることで、System.Linq等のBCL型をセマンティック解析(CheckLinqUsage)で正しく解決できるようにする
+            var references = GetTrustedPlatformAssemblyReferences();
 
             // Unity/UdonSharp参照アセンブリを追加（存在する場合）
             try
@@ -241,7 +265,7 @@ namespace tktco.UdonSharpLinter
                 CheckGotoStatements(root, filePath, errors);
                 CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
                 CheckGenericCollectionTypes(root, filePath, errors);
-                CheckLinqUsage(root, filePath, errors);
+                CheckLinqUsage(root, filePath, errors, compilation);
                 CheckLambdaAndDelegates(root, filePath, errors);
                 CheckCoroutineUsage(root, filePath, errors);
                 CheckUIEventListenerRegistration(root, filePath, errors);
@@ -383,11 +407,12 @@ namespace tktco.UdonSharpLinter
         /// - 15: Removed - Properties are now supported in UdonSharp 1.0+
         /// - 28: Removed - Null coalescing operator (??) is now supported in UdonSharp
         ///
-        /// Error code ranges:
-        /// - 1-12, 18: Basic language feature restrictions
-        /// - 13-17, 19: API and attribute restrictions
-        /// - 20-25: Cross-file and semantic analysis
-        /// - 26-31: Additional language feature restrictions (SendCustomEvent, null operators, async/await, goto, user-defined type static field access)
+        /// Error code ranges (see README.md/README.ja.md "Checks" tables, regenerated via --generate-readme,
+        /// for the authoritative code-to-category mapping):
+        /// - Basic language feature restrictions: 1-9, 11, 12, 18, 27, 29, 30, 32-35
+        /// - API and attribute restrictions: 13, 14, 16, 17, 19, 26, 36, 37
+        /// - Cross-file and semantic analysis: 20-22, 25, 31
+        /// - Networking and synchronization: 38-41
         /// </summary>
         internal static class LintErrorCodes
         {
@@ -519,6 +544,26 @@ namespace tktco.UdonSharpLinter
         {
             return (invocation.Expression is IdentifierNameSyntax identifier && identifier.Identifier.Text == methodName) ||
                    (invocation.Expression is MemberAccessExpressionSyntax member && member.Name.Identifier.Text == methodName);
+        }
+
+        /// <summary>
+        /// レシーバー式がUnityEventのフィールド命名規則(onClick, onValueChangedなど)に一致するか判定する。
+        /// `button.onClick`のようなメンバーアクセスと、`onReady`のように直接公開されたフィールド/プロパティの両方を許容する
+        /// </summary>
+        private static bool IsUnityEventLikeReceiver(ExpressionSyntax receiver)
+        {
+            return (receiver is IdentifierNameSyntax identifier && identifier.Identifier.Text.StartsWith("on", StringComparison.OrdinalIgnoreCase)) ||
+                   (receiver is MemberAccessExpressionSyntax member && member.Name.Identifier.Text.StartsWith("on", StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// 呼び出しのレシーバーが暗黙のthis、または明示的な`this.`であるか判定する
+        /// (他のオブジェクトに対する呼び出し、例: other.RequestSerialization()を除外するため)
+        /// </summary>
+        private static bool IsSelfReceiverInvocation(InvocationExpressionSyntax invocation)
+        {
+            return invocation.Expression is IdentifierNameSyntax ||
+                   (invocation.Expression is MemberAccessExpressionSyntax member && member.Expression is ThisExpressionSyntax);
         }
 
         #endregion
@@ -2256,6 +2301,8 @@ namespace tktco.UdonSharpLinter
             }
         }
 
+        private const string LinqUsageMessage = "LINQ (System.Linq) is not supported in UdonSharp. Use a manual loop over the array instead.";
+
         /// <summary>
         /// UdonSharp制約: LINQは使用できません
         ///
@@ -2266,27 +2313,26 @@ namespace tktco.UdonSharpLinter
         /// NG: using System.Linq;
         /// OK: foreach (var item in items) { if (condition) { ... } }
         /// </summary>
-        private static void CheckLinqUsage(SyntaxNode root, string filePath, List<LintError> errors)
+        private static void CheckLinqUsage(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
         {
-            var linqUsingDirectives = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
-                .Where(u => u.Name != null && IsLinqNamespaceText(u.Name.ToString()));
+            // テキスト上の完全修飾呼び出しに加え、セマンティックモデルでSystem.Linqの拡張メソッドとして
+            // 解決される呼び出し(namespace alias, global using, 修飾なしの拡張メソッド構文など)も検出する
+            var semanticModel = compilation.GetSemanticModel(root.SyntaxTree);
 
-            foreach (var usingDirective in linqUsingDirectives)
+            foreach (var node in root.DescendantNodes())
             {
-                AddError(errors, filePath, usingDirective,
-                    "LINQ (System.Linq) is not supported in UdonSharp. Use a manual loop over the array instead.",
-                    LintErrorCodes.LinqUsage);
-            }
-
-            // using System.Linq;が無くても、完全修飾で呼び出された場合も検出する
-            var qualifiedLinqInvocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
-                .Where(inv => IsLinqNamespaceText(inv.Expression.ToString()));
-
-            foreach (var invocation in qualifiedLinqInvocations)
-            {
-                AddError(errors, filePath, invocation,
-                    "LINQ (System.Linq) is not supported in UdonSharp. Use a manual loop over the array instead.",
-                    LintErrorCodes.LinqUsage);
+                if (node is UsingDirectiveSyntax usingDirective && usingDirective.Name != null &&
+                    IsLinqNamespaceText(usingDirective.Name.ToString()))
+                {
+                    AddError(errors, filePath, usingDirective, LinqUsageMessage, LintErrorCodes.LinqUsage);
+                }
+                else if (node is InvocationExpressionSyntax invocation &&
+                    (IsLinqNamespaceText(invocation.Expression.ToString()) ||
+                     (semanticModel.GetSymbolInfo(invocation).Symbol as IMethodSymbol)
+                         ?.ContainingType?.ContainingNamespace?.ToDisplayString() == "System.Linq"))
+                {
+                    AddError(errors, filePath, invocation, LinqUsageMessage, LintErrorCodes.LinqUsage);
+                }
             }
         }
 
@@ -2302,7 +2348,8 @@ namespace tktco.UdonSharpLinter
                 : namespaceText;
 
             return (normalized == "System.Linq" || normalized.StartsWith("System.Linq.")) &&
-                   !normalized.StartsWith("System.Linq.Expressions");
+                   normalized != "System.Linq.Expressions" &&
+                   !normalized.StartsWith("System.Linq.Expressions.");
         }
 
         /// <summary>
@@ -2358,23 +2405,18 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckCoroutineUsage(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var yieldStatements = root.DescendantNodes().OfType<YieldStatementSyntax>();
+            const string message = "Coroutines are not supported in UdonSharp. Use SendCustomEventDelayedSeconds/SendCustomEventDelayedFrames instead.";
 
-            foreach (var yieldStatement in yieldStatements)
+            foreach (var node in root.DescendantNodes())
             {
-                AddError(errors, filePath, yieldStatement,
-                    "Coroutines (yield return) are not supported in UdonSharp. Use SendCustomEventDelayedSeconds/SendCustomEventDelayedFrames instead.",
-                    LintErrorCodes.CoroutineUsage);
-            }
-
-            var startCoroutineInvocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
-                .Where(inv => IsInvocationOf(inv, "StartCoroutine"));
-
-            foreach (var invocation in startCoroutineInvocations)
-            {
-                AddError(errors, filePath, invocation,
-                    "StartCoroutine is not supported in UdonSharp. Use SendCustomEventDelayedSeconds/SendCustomEventDelayedFrames instead.",
-                    LintErrorCodes.CoroutineUsage);
+                if (node is YieldStatementSyntax)
+                {
+                    AddError(errors, filePath, node, message, LintErrorCodes.CoroutineUsage);
+                }
+                else if (node is InvocationExpressionSyntax invocation && IsInvocationOf(invocation, "StartCoroutine"))
+                {
+                    AddError(errors, filePath, invocation, message, LintErrorCodes.CoroutineUsage);
+                }
             }
         }
 
@@ -2393,12 +2435,12 @@ namespace tktco.UdonSharpLinter
         {
             // UnityEventのフィールド命名規則(onClick, onValueChangedなど)に一致するレシーバー経由の
             // AddListener呼び出しのみを対象にし、無関係な独自メソッド(例: manager.AddListener(id))への
-            // 誤検知を避ける
+            // 誤検知を避ける。レシーバーは`button.onClick`のようなメンバーアクセスだけでなく、
+            // `onReady`のようにUnityEventが直接フィールド/プロパティとして公開されている場合も対象にする
             var addListenerInvocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
-                .Where(inv => inv.Expression is MemberAccessExpressionSyntax member &&
-                              member.Name.Identifier.Text == "AddListener" &&
-                              member.Expression is MemberAccessExpressionSyntax receiverMember &&
-                              receiverMember.Name.Identifier.Text.StartsWith("on", StringComparison.Ordinal));
+                .Where(inv => IsInvocationOf(inv, "AddListener") &&
+                              inv.Expression is MemberAccessExpressionSyntax member &&
+                              IsUnityEventLikeReceiver(member.Expression));
 
             foreach (var invocation in addListenerInvocations)
             {
@@ -2440,7 +2482,14 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static string GetRightmostTypeName(TypeSyntax type)
         {
-            var text = type.ToString();
+            return GetRightmostDottedSegment(type.ToString());
+        }
+
+        /// <summary>
+        /// テキストの最後のドット区切りセグメントを取得する(例: "BehaviourSyncMode.None" -&gt; "None")
+        /// </summary>
+        private static string GetRightmostDottedSegment(string text)
+        {
             var lastDotIndex = text.LastIndexOf('.');
             return lastDotIndex >= 0 ? text.Substring(lastDotIndex + 1) : text;
         }
@@ -2483,8 +2532,8 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static bool IsNoSyncMode(string syncMode)
         {
-            return syncMode == "None" || syncMode == "NoVariableSync" ||
-                   syncMode.EndsWith(".None") || syncMode.EndsWith(".NoVariableSync");
+            var bareName = GetRightmostDottedSegment(syncMode);
+            return bareName == "None" || bareName == "NoVariableSync";
         }
 
         private static void CheckSyncModeConflict(string syncMode,
@@ -2512,7 +2561,7 @@ namespace tktco.UdonSharpLinter
                 return;
 
             bool callsRequestSerialization = classDecl.DescendantNodes().OfType<InvocationExpressionSyntax>()
-                .Any(inv => IsInvocationOf(inv, "RequestSerialization"));
+                .Any(inv => IsInvocationOf(inv, "RequestSerialization") && IsSelfReceiverInvocation(inv));
 
             if (!callsRequestSerialization)
             {
@@ -2534,8 +2583,8 @@ namespace tktco.UdonSharpLinter
             if (syncedVariableCount > RecommendedMaxSyncedFieldCount)
             {
                 AddError(errors, filePath, classDecl,
-                    $"This behaviour has {syncedVariableCount} [UdonSynced] fields. Consider keeping synced data under " +
-                    $"~{RecommendedMaxSyncedFieldCount} fields per behaviour to reduce network bandwidth usage.",
+                    $"This behaviour has {syncedVariableCount} [UdonSynced] variables. Consider keeping synced data under " +
+                    $"~{RecommendedMaxSyncedFieldCount} variables per behaviour to reduce network bandwidth usage.",
                     LintErrorCodes.ExcessiveSyncedVariables, DiagnosticSeverity.Warning);
             }
         }
@@ -2628,11 +2677,7 @@ namespace tktco.UdonSharpLinter
             var tree = CSharpSyntaxTree.ParseText(sourceCode, path: filePath);
             var root = tree.GetRoot();
 
-            var references = new List<MetadataReference>
-            {
-                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-            };
+            var references = GetTrustedPlatformAssemblyReferences();
 
             var compilation = CSharpCompilation.Create(
                 "TestCompilation",
@@ -2673,7 +2718,7 @@ namespace tktco.UdonSharpLinter
             CheckGotoStatements(root, filePath, errors);
             CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
             CheckGenericCollectionTypes(root, filePath, errors);
-            CheckLinqUsage(root, filePath, errors);
+            CheckLinqUsage(root, filePath, errors, compilation);
             CheckLambdaAndDelegates(root, filePath, errors);
             CheckCoroutineUsage(root, filePath, errors);
             CheckUIEventListenerRegistration(root, filePath, errors);

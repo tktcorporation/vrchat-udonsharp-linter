@@ -128,6 +128,31 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void ManualSyncCallingRequestSerializationOnOtherObject_StillReportsWarning()
+    {
+        var code = @"
+using UdonSharp;
+using VRC.SDKBase;
+
+[UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public int value;
+
+    public TestBehaviour other;
+
+    public void SetValue(int newValue)
+    {
+        value = newValue;
+        other.RequestSerialization();
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.ManualSyncMissingRequestSerialization);
+    }
+
+    [Fact]
     public void ExcessiveSyncedFields_ReportsWarning()
     {
         var code = @"
