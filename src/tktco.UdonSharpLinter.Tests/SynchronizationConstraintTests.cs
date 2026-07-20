@@ -281,4 +281,55 @@ public class TestBehaviour : UdonSharpBehaviour
         var errors = Program.AnalyzeCode(code);
         Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.LargeArraySynced);
     }
+
+    [Fact]
+    public void DecoyAttributeNamedLikeUdonSynced_DoesNotTriggerSyncModeConflict()
+    {
+        // [UdonSyncedMetadata] merely *contains* "UdonSynced" as a substring; it must not be
+        // mistaken for the real [UdonSynced] attribute (regression test for #27).
+        var code = @"
+using UdonSharp;
+using VRC.SDKBase;
+using System;
+
+public class UdonSyncedMetadataAttribute : Attribute { }
+
+[UdonBehaviourSyncMode(BehaviourSyncMode.NoVariableSync)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSyncedMetadata]
+    public int value;
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.SyncModeConflict);
+    }
+
+    [Fact]
+    public void DecoyAttributeNamedLikeUdonBehaviourSyncMode_IsNotTreatedAsSyncModeDeclaration()
+    {
+        // A class attribute that merely *contains* "UdonBehaviourSyncMode" as a substring (and that
+        // happens to carry a NoVariableSync-looking argument) must not be mistaken for the real
+        // [UdonBehaviourSyncMode(...)] attribute (regression test for #27).
+        var code = @"
+using UdonSharp;
+using VRC.SDKBase;
+using System;
+
+public class MyUdonBehaviourSyncModeMarkerAttribute : Attribute
+{
+    public MyUdonBehaviourSyncModeMarkerAttribute(object mode) { }
+}
+
+[MyUdonBehaviourSyncModeMarker(BehaviourSyncMode.NoVariableSync)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public int value;
+}";
+        var errors = Program.AnalyzeCode(code);
+        // No real [UdonBehaviourSyncMode(...)] attribute is present, so GetUdonBehaviourSyncMode
+        // should return null and neither sync-mode check should fire.
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.SyncModeConflict);
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.ManualSyncMissingRequestSerialization);
+    }
 }

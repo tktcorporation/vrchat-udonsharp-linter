@@ -206,7 +206,7 @@ namespace tktco.UdonSharpLinter
         /// コンパイル情報を構築
         /// セマンティック解析に必要な型情報を提供
         /// </summary>
-        private static CSharpCompilation CreateCompilation(List<SyntaxTree> syntaxTrees)
+        private static CSharpCompilation CreateCompilation(List<SyntaxTree> syntaxTrees, string? scriptAssembliesDirOverride = null)
         {
             // 基本的な参照アセンブリを追加
             // .NET Core以降はBCLの型が複数のアセンブリに型転送されているため(例: IEnumerable<T>はSystem.Runtime)、
@@ -215,33 +215,14 @@ namespace tktco.UdonSharpLinter
             var references = GetTrustedPlatformAssemblyReferences();
 
             // Unity/UdonSharp参照アセンブリを追加（存在する場合）
-            try
-            {
-                // UnityEngine.dll
-                var unityEnginePath = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies", "UnityEngine.dll");
-                if (File.Exists(unityEnginePath))
-                {
-                    references.Add(MetadataReference.CreateFromFile(unityEnginePath));
-                }
-
-                // VRChat SDK
-                var vrcSdkPath = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies", "VRC.SDKBase.dll");
-                if (File.Exists(vrcSdkPath))
-                {
-                    references.Add(MetadataReference.CreateFromFile(vrcSdkPath));
-                }
-
-                // UdonSharp Runtime
-                var udonSharpPath = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies", "UdonSharp.Runtime.dll");
-                if (File.Exists(udonSharpPath))
-                {
-                    references.Add(MetadataReference.CreateFromFile(udonSharpPath));
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Warning] Could not load Unity assemblies: {ex.Message}");
-            }
+            // 注: Library/ScriptAssembliesにはUnity/VRC SDKだけでなく、プロジェクト自身の
+            // コンパイル済みスクリプトアセンブリ(Assembly-CSharp.dll等)も含まれる。同名の型が
+            // ソース(構文木)側とこの参照側の両方に存在する場合でも、C#コンパイラはCS0436警告を
+            // 出しつつソース側の型定義を優先して解決するため、クロスファイルチェックが依存する
+            // シンボルのSourceTree解決は壊れない(スクリプトアセンブリだけを除外する必要はない)
+            var scriptAssembliesDir = scriptAssembliesDirOverride
+                ?? Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies");
+            references.AddRange(LoadUnityAssemblyReferences(scriptAssembliesDir));
 
             return CSharpCompilation.Create(
                 "UdonSharpLinter",
@@ -249,6 +230,37 @@ namespace tktco.UdonSharpLinter
                 references,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
             );
+        }
+
+        /// <summary>
+        /// Library/ScriptAssemblies配下の*.dllを全て走査し、参照アセンブリとして読み込む。
+        /// 近年のUnity(2018.1+)はUnityEngine/VRC SDKをモジュールごとに多数のDLL
+        /// (UnityEngine.CoreModule.dll、VRC.Udon.dll等)へ分割しているため、
+        /// 特定のファイル名だけを決め打ちで探すと実際のプロジェクトではほぼヒットしない。
+        /// 個別のDLLが不正/読み込み不可でも他のDLLの読み込みを妨げないよう、ファイル単位でエラーを捕捉する
+        /// </summary>
+        internal static List<MetadataReference> LoadUnityAssemblyReferences(string scriptAssembliesDir)
+        {
+            var references = new List<MetadataReference>();
+
+            if (!Directory.Exists(scriptAssembliesDir))
+            {
+                return references;
+            }
+
+            foreach (var dllPath in Directory.GetFiles(scriptAssembliesDir, "*.dll"))
+            {
+                try
+                {
+                    references.Add(MetadataReference.CreateFromFile(dllPath));
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Warning] Could not load assembly {dllPath}: {ex.Message}");
+                }
+            }
+
+            return references;
         }
 
         private static void LintFile(string filePath, SyntaxTree tree, CSharpCompilation compilation, Dictionary<string, HashSet<string>> callGraph)
@@ -546,7 +558,7 @@ namespace tktco.UdonSharpLinter
         private static bool HasAttribute(MemberDeclarationSyntax member, string attributeName)
         {
             return member.AttributeLists.Any(al =>
-                al.Attributes.Any(a => a.Name.ToString().Contains(attributeName)));
+                al.Attributes.Any(a => IsAttributeNameMatch(a.Name.ToString(), attributeName)));
         }
 
         /// <summary>
@@ -556,8 +568,22 @@ namespace tktco.UdonSharpLinter
         {
             return classDecl.AttributeLists
                 .SelectMany(al => al.Attributes)
-                .FirstOrDefault(a => a.Name.ToString().Contains("UdonBehaviourSyncMode"))
+                .FirstOrDefault(a => IsAttributeNameMatch(a.Name.ToString(), "UdonBehaviourSyncMode"))
                 ?.ArgumentList?.Arguments.FirstOrDefault()?.ToString();
+        }
+
+        /// <summary>
+        /// Compares an attribute usage's name syntax (e.g. "UdonSynced", "Foo.UdonSyncedAttribute")
+        /// against a target simple name exactly, rather than via substring matching, so a decoy
+        /// attribute like [UdonSyncedMetadata] doesn't get mistaken for [UdonSynced].
+        /// C# allows omitting the "Attribute" suffix at the usage site, so both forms are accepted.
+        /// </summary>
+        private static bool IsAttributeNameMatch(string actualAttributeNameSyntax, string attributeName)
+        {
+            var lastDot = actualAttributeNameSyntax.LastIndexOf('.');
+            var simpleName = lastDot >= 0 ? actualAttributeNameSyntax.Substring(lastDot + 1) : actualAttributeNameSyntax;
+
+            return simpleName == attributeName || simpleName == attributeName + "Attribute";
         }
 
         /// <summary>
@@ -2767,6 +2793,105 @@ namespace tktco.UdonSharpLinter
             CheckUIEventListenerRegistration(root, filePath, errors);
             CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
             CheckSynchronizationConstraints(root, filePath, errors);
+
+            return errors;
+        }
+
+        /// <summary>
+        /// Analyzes multiple in-memory source files as a single compilation and returns lint errors
+        /// across all of them (for testing purposes). Mirrors the multi-file pipeline in Main():
+        /// per-UdonSharp-file syntax/semantic checks, plus the call-graph-driven static-method-file
+        /// check (CheckStaticMethodFieldAccess) and the type-reference-graph-driven referenced-type-file
+        /// check (CheckReferencedTypeStaticFields), so cross-file semantic checks are testable.
+        /// </summary>
+        internal static List<LintError> AnalyzeCodeMultiFile(params (string path, string source)[] files)
+        {
+            return AnalyzeCodeMultiFile(files, scriptAssembliesDirOverride: null);
+        }
+
+        /// <summary>
+        /// Overload of <see cref="AnalyzeCodeMultiFile(ValueTuple{string, string}[])"/> that lets tests inject a
+        /// Library/ScriptAssemblies directory (instead of the CWD-derived one CreateCompilation uses by default),
+        /// e.g. to verify behavior when it contains a stale compiled copy of one of the source files under test.
+        /// </summary>
+        internal static List<LintError> AnalyzeCodeMultiFile((string path, string source)[] files, string? scriptAssembliesDirOverride)
+        {
+            var syntaxTreeDict = new Dictionary<string, SyntaxTree>();
+            var rawPaths = new Dictionary<string, string>();
+
+            foreach (var (path, source) in files)
+            {
+                var tree = CSharpSyntaxTree.ParseText(source, path: path);
+                var normalizedPath = Path.GetFullPath(path);
+                syntaxTreeDict[normalizedPath] = tree;
+                rawPaths[normalizedPath] = path;
+            }
+
+            var compilation = CreateCompilation(syntaxTreeDict.Values.ToList(), scriptAssembliesDirOverride);
+
+            var udonSharpFiles = syntaxTreeDict
+                .Where(kvp => kvp.Value.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>().Any(IsUdonSharpBehaviourClass))
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            var callGraph = BuildCallGraph(compilation, udonSharpFiles);
+            var typeReferenceGraph = BuildTypeReferenceGraph(compilation, udonSharpFiles);
+
+            var errors = new List<LintError>();
+
+            foreach (var normalizedPath in udonSharpFiles)
+            {
+                var root = syntaxTreeDict[normalizedPath].GetRoot();
+                var filePath = rawPaths[normalizedPath];
+
+                CheckTryCatchStatements(root, filePath, errors);
+                CheckThrowStatements(root, filePath, errors);
+                CheckLocalFunctions(root, filePath, errors);
+                CheckObjectInitializers(root, filePath, errors);
+                CheckCollectionInitializers(root, filePath, errors);
+                CheckMultidimensionalArrays(root, filePath, errors);
+                CheckConstructors(root, filePath, errors);
+                CheckGenericMethods(root, filePath, errors);
+                CheckGenericClasses(root, filePath, errors);
+                CheckStaticFields(root, filePath, errors);
+                CheckNestedTypes(root, filePath, errors);
+                CheckNetworkCallableMethods(root, filePath, errors);
+                CheckTextMeshProAPIs(root, filePath, errors);
+                CheckGeneralUnexposedAPIs(root, filePath, errors);
+                CheckMethodOverloads(root, filePath, errors);
+                CheckInterfaces(root, filePath, errors);
+                CheckCrossFileFieldAccess(root, filePath, errors, compilation);
+                CheckCrossFileMethodInvocation(root, filePath, errors, compilation);
+                CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
+                CheckSendCustomEventMethods(root, filePath, errors, compilation);
+                CheckNullConditionalOperators(root, filePath, errors);
+                CheckAsyncAwait(root, filePath, errors);
+                CheckGotoStatements(root, filePath, errors);
+                CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
+                CheckGenericCollectionTypes(root, filePath, errors);
+                CheckLinqUsage(root, filePath, errors, compilation);
+                CheckLambdaAndDelegates(root, filePath, errors);
+                CheckCoroutineUsage(root, filePath, errors);
+                CheckUIEventListenerRegistration(root, filePath, errors);
+                CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
+                CheckSynchronizationConstraints(root, filePath, errors);
+            }
+
+            foreach (var entry in callGraph)
+            {
+                if (syntaxTreeDict.TryGetValue(entry.Key, out var tree))
+                {
+                    CheckStaticMethodFieldAccess(tree.GetRoot(), rawPaths[entry.Key], errors, compilation, entry.Value);
+                }
+            }
+
+            foreach (var entry in typeReferenceGraph)
+            {
+                if (syntaxTreeDict.TryGetValue(entry.Key, out var tree))
+                {
+                    CheckReferencedTypeStaticFields(tree.GetRoot(), rawPaths[entry.Key], errors, entry.Value);
+                }
+            }
 
             return errors;
         }
