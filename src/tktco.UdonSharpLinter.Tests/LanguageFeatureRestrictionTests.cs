@@ -110,6 +110,40 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void GlobalQualifiedLinqUsingDirective_ReportsError()
+    {
+        var code = @"
+using UdonSharp;
+using global::System.Linq;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.LinqUsage);
+    }
+
+    [Fact]
+    public void SystemLinqExpressionsUsingDirective_NoError()
+    {
+        var code = @"
+using UdonSharp;
+using System.Linq.Expressions;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.LinqUsage);
+    }
+
+    [Fact]
     public void NoLinqUsingDirective_NoError()
     {
         var code = @"
@@ -143,6 +177,26 @@ public class TestBehaviour : UdonSharpBehaviour
     public void Start()
     {
         Action action = () => DoSomething();
+    }
+
+    private void DoSomething() { }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.LambdaOrDelegate);
+    }
+
+    [Fact]
+    public void AnonymousMethodExpression_ReportsError()
+    {
+        var code = @"
+using UdonSharp;
+using System;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+        Action action = delegate { DoSomething(); };
     }
 
     private void DoSomething() { }
@@ -296,6 +350,30 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void UnrelatedAddListenerMethod_NoError()
+    {
+        var code = @"
+using UdonSharp;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public EventManager manager;
+
+    public void Start()
+    {
+        manager.AddListener(1);
+    }
+}
+
+public class EventManager
+{
+    public void AddListener(int id) { }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.UIEventListenerRegistration);
+    }
+
+    [Fact]
     public void GenericGetComponentUdonBehaviour_ReportsWarning()
     {
         var code = @"
@@ -307,6 +385,23 @@ public class TestBehaviour : UdonSharpBehaviour
     public void Start()
     {
         var udon = GetComponent<UdonBehaviour>();
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.GenericGetComponentUdonBehaviour);
+    }
+
+    [Fact]
+    public void QualifiedGenericGetComponentUdonBehaviour_ReportsWarning()
+    {
+        var code = @"
+using UdonSharp;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+        var udon = GetComponent<VRC.Udon.UdonBehaviour>();
     }
 }";
         var errors = Program.AnalyzeCode(code);

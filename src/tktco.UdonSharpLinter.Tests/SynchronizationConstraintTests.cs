@@ -24,6 +24,42 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void BareNoneSyncModeWithUdonSyncedField_ReportsError()
+    {
+        var code = @"
+using UdonSharp;
+using VRC.SDKBase;
+using static VRC.SDKBase.BehaviourSyncMode;
+
+[UdonBehaviourSyncMode(None)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public int value;
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.SyncModeConflict);
+    }
+
+    [Fact]
+    public void GroupedNoVariableSyncFields_ReportsErrorPerVariable()
+    {
+        var code = @"
+using UdonSharp;
+using VRC.SDKBase;
+
+[UdonBehaviourSyncMode(BehaviourSyncMode.NoVariableSync)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public int a, b, c;
+}";
+        var errors = Program.AnalyzeCode(code);
+        var conflictErrors = errors.FindAll(e => e.Code == Program.LintErrorCodes.SyncModeConflict);
+        Assert.Equal(3, conflictErrors.Count);
+    }
+
+    [Fact]
     public void ManualSyncWithUdonSyncedField_NoConflictError()
     {
         var code = @"
@@ -160,6 +196,23 @@ public class TestBehaviour : UdonSharpBehaviour
 {
     [UdonSynced]
     public int[] values;
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.LargeArraySynced);
+    }
+
+    [Fact]
+    public void SyncedInt32AliasArray_ReportsWarning()
+    {
+        var code = @"
+using UdonSharp;
+using VRC.SDKBase;
+
+[UdonBehaviourSyncMode(BehaviourSyncMode.Continuous)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public System.Int32[] values;
 }";
         var errors = Program.AnalyzeCode(code);
         Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.LargeArraySynced);

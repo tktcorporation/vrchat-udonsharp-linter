@@ -41,10 +41,13 @@ npm run version
 
 ### Error Code System
 
-Error codes are defined in `LintErrorCodes` class (Program.cs:309-337) and follow the pattern `UDON###`:
-- 1-18: Basic language feature restrictions
-- 13-19: API and attribute restrictions
-- 20-25: Cross-file and semantic analysis
+Error codes are defined in `LintErrorCodes` class (Program.cs:392+) and follow the pattern `UDON###`. Codes are grouped by when they were added rather than a strict numeric range per category; current groupings:
+- Basic language feature restrictions: 1-9, 11, 12, 18, 27, 29, 30, 32-35
+- API and attribute restrictions: 13, 14, 16, 17, 19, 26, 36, 37
+- Cross-file and semantic analysis: 20-22, 25, 31
+- Networking and synchronization: 38-41
+
+See the `README.md`/`README.ja.md` "Checks" tables (regenerated via `--generate-readme`) for the authoritative, up-to-date mapping of codes to categories.
 
 ### Adding New Lint Rules
 
