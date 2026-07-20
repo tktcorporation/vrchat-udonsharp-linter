@@ -206,7 +206,7 @@ namespace tktco.UdonSharpLinter
         /// コンパイル情報を構築
         /// セマンティック解析に必要な型情報を提供
         /// </summary>
-        private static CSharpCompilation CreateCompilation(List<SyntaxTree> syntaxTrees)
+        private static CSharpCompilation CreateCompilation(List<SyntaxTree> syntaxTrees, string? scriptAssembliesDirOverride = null)
         {
             // 基本的な参照アセンブリを追加
             // .NET Core以降はBCLの型が複数のアセンブリに型転送されているため(例: IEnumerable<T>はSystem.Runtime)、
@@ -215,7 +215,13 @@ namespace tktco.UdonSharpLinter
             var references = GetTrustedPlatformAssemblyReferences();
 
             // Unity/UdonSharp参照アセンブリを追加（存在する場合）
-            var scriptAssembliesDir = Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies");
+            // 注: Library/ScriptAssembliesにはUnity/VRC SDKだけでなく、プロジェクト自身の
+            // コンパイル済みスクリプトアセンブリ(Assembly-CSharp.dll等)も含まれる。同名の型が
+            // ソース(構文木)側とこの参照側の両方に存在する場合でも、C#コンパイラはCS0436警告を
+            // 出しつつソース側の型定義を優先して解決するため、クロスファイルチェックが依存する
+            // シンボルのSourceTree解決は壊れない(スクリプトアセンブリだけを除外する必要はない)
+            var scriptAssembliesDir = scriptAssembliesDirOverride
+                ?? Path.Combine(Directory.GetCurrentDirectory(), "Library", "ScriptAssemblies");
             references.AddRange(LoadUnityAssemblyReferences(scriptAssembliesDir));
 
             return CSharpCompilation.Create(
@@ -2800,6 +2806,16 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         internal static List<LintError> AnalyzeCodeMultiFile(params (string path, string source)[] files)
         {
+            return AnalyzeCodeMultiFile(files, scriptAssembliesDirOverride: null);
+        }
+
+        /// <summary>
+        /// Overload of <see cref="AnalyzeCodeMultiFile(ValueTuple{string, string}[])"/> that lets tests inject a
+        /// Library/ScriptAssemblies directory (instead of the CWD-derived one CreateCompilation uses by default),
+        /// e.g. to verify behavior when it contains a stale compiled copy of one of the source files under test.
+        /// </summary>
+        internal static List<LintError> AnalyzeCodeMultiFile((string path, string source)[] files, string? scriptAssembliesDirOverride)
+        {
             var syntaxTreeDict = new Dictionary<string, SyntaxTree>();
             var rawPaths = new Dictionary<string, string>();
 
@@ -2811,7 +2827,7 @@ namespace tktco.UdonSharpLinter
                 rawPaths[normalizedPath] = path;
             }
 
-            var compilation = CreateCompilation(syntaxTreeDict.Values.ToList());
+            var compilation = CreateCompilation(syntaxTreeDict.Values.ToList(), scriptAssembliesDirOverride);
 
             var udonSharpFiles = syntaxTreeDict
                 .Where(kvp => kvp.Value.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>().Any(IsUdonSharpBehaviourClass))

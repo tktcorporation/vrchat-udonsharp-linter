@@ -1,3 +1,8 @@
+using System;
+using System.IO;
+using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Xunit;
 using tktco.UdonSharpLinter;
 
@@ -254,5 +259,71 @@ public class TestBehaviour : UdonSharpBehaviour
         var errors = Program.AnalyzeCodeMultiFile(utilityFile, behaviourFile);
 
         Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.UserDefinedTypeStaticFieldAccess);
+    }
+
+    [Fact]
+    public void StaleCompiledCopyOfSourceTypeInScriptAssemblies_DoesNotBreakCrossFileFieldAccessResolution()
+    {
+        // Library/ScriptAssemblies contains the Unity/VRC SDK, but also the project's own
+        // already-compiled script assemblies (e.g. Assembly-CSharp.dll), so globbing it (#28)
+        // means a *.dll reference can contain a type with the exact same name as one of the
+        // .cs files we're also parsing as source. Verify that doesn't corrupt symbol resolution:
+        // C# prefers the source-declared type over the metadata one for a same-named type
+        // (CS0436), so CheckCrossFileFieldAccess should still resolve to the source symbol.
+        var dataSource = @"
+using System;
+
+[Serializable]
+public class ColorPaletteItem
+{
+    public int mainColor;
+}";
+
+        var dir = Path.Combine(Path.GetTempPath(), "UdonSharpLinterTests_" + Guid.NewGuid());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var priorTree = CSharpSyntaxTree.ParseText(dataSource, path: "ColorPaletteData.cs");
+            var priorCompilation = CSharpCompilation.Create(
+                "Assembly-CSharp",
+                new[] { priorTree },
+                GetMinimalBclReferences(),
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+            var dllPath = Path.Combine(dir, "Assembly-CSharp.dll");
+            var emitResult = priorCompilation.Emit(dllPath);
+            Assert.True(emitResult.Success, string.Join("\n", emitResult.Diagnostics));
+
+            var dataFile = ("ColorPaletteData.cs", dataSource);
+            var behaviourFile = ("Behaviour.cs", @"
+using UdonSharp;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public ColorPaletteItem palette;
+
+    public void Start()
+    {
+        int c = palette.mainColor;
+    }
+}");
+
+            var errors = Program.AnalyzeCodeMultiFile(new[] { dataFile, behaviourFile }, dir);
+
+            Assert.Single(errors, e => e.Code == Program.LintErrorCodes.CrossFileFieldAccess);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static System.Collections.Generic.List<MetadataReference> GetMinimalBclReferences()
+    {
+        var trustedAssembliesPaths = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "";
+        return trustedAssembliesPaths
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
+            .ToList();
     }
 }
