@@ -2266,11 +2266,26 @@ namespace tktco.UdonSharpLinter
         private static void CheckLinqUsage(SyntaxNode root, string filePath, List<LintError> errors)
         {
             var linqUsingDirectives = root.DescendantNodes().OfType<UsingDirectiveSyntax>()
-                .Where(u => u.Name != null && u.Name.ToString() == "System.Linq");
+                .Where(u => u.Name != null && u.Name.ToString().StartsWith("System.Linq"));
 
             foreach (var usingDirective in linqUsingDirectives)
             {
                 AddError(errors, filePath, usingDirective,
+                    "LINQ (System.Linq) is not supported in UdonSharp. Use a manual loop over the array instead.",
+                    LintErrorCodes.LinqUsage);
+            }
+
+            // using System.Linq;が無くても、完全修飾で呼び出された場合も検出する
+            var qualifiedLinqInvocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
+                .Where(inv =>
+                {
+                    var expressionText = inv.Expression.ToString();
+                    return expressionText.StartsWith("System.Linq.") || expressionText.StartsWith("global::System.Linq.");
+                });
+
+            foreach (var invocation in qualifiedLinqInvocations)
+            {
+                AddError(errors, filePath, invocation,
                     "LINQ (System.Linq) is not supported in UdonSharp. Use a manual loop over the array instead.",
                     LintErrorCodes.LinqUsage);
             }
@@ -2478,10 +2493,14 @@ namespace tktco.UdonSharpLinter
         private static void CheckExcessiveSyncedVariables(ClassDeclarationSyntax classDecl,
             List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
         {
-            if (syncedFields.Count > RecommendedMaxSyncedFieldCount)
+            // 1つのFieldDeclarationSyntaxに複数変数が含まれる場合(例: [UdonSynced] int a, b, c;)があるため、
+            // 宣言数ではなく変数数を数える
+            int syncedVariableCount = syncedFields.Sum(f => f.Declaration.Variables.Count);
+
+            if (syncedVariableCount > RecommendedMaxSyncedFieldCount)
             {
                 AddError(errors, filePath, classDecl,
-                    $"This behaviour has {syncedFields.Count} [UdonSynced] fields. Consider keeping synced data under " +
+                    $"This behaviour has {syncedVariableCount} [UdonSynced] fields. Consider keeping synced data under " +
                     $"~{RecommendedMaxSyncedFieldCount} fields per behaviour to reduce network bandwidth usage.",
                     LintErrorCodes.ExcessiveSyncedVariables, DiagnosticSeverity.Warning);
             }

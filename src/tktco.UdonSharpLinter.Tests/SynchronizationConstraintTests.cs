@@ -116,6 +116,22 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void ExcessiveSyncedFieldsGroupedInSingleDeclaration_ReportsWarning()
+    {
+        var code = @"
+using UdonSharp;
+using VRC.SDKBase;
+
+[UdonBehaviourSyncMode(BehaviourSyncMode.Continuous)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced] public int value1, value2, value3, value4, value5, value6, value7, value8, value9;
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.ExcessiveSyncedVariables);
+    }
+
+    [Fact]
     public void FewSyncedFields_NoWarning()
     {
         var code = @"

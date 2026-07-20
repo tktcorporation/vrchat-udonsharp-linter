@@ -75,6 +75,41 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void QualifiedLinqInvocationWithoutUsingDirective_ReportsError()
+    {
+        var code = @"
+using UdonSharp;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+        int[] values = new int[] { 1, 2, 3 };
+        var count = System.Linq.Enumerable.Count(values);
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.LinqUsage);
+    }
+
+    [Fact]
+    public void UsingStaticLinqDirective_ReportsError()
+    {
+        var code = @"
+using UdonSharp;
+using static System.Linq.Enumerable;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.LinqUsage);
+    }
+
+    [Fact]
     public void NoLinqUsingDirective_NoError()
     {
         var code = @"
