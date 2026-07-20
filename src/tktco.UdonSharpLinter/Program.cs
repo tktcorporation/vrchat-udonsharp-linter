@@ -2791,6 +2791,95 @@ namespace tktco.UdonSharpLinter
             return errors;
         }
 
+        /// <summary>
+        /// Analyzes multiple in-memory source files as a single compilation and returns lint errors
+        /// across all of them (for testing purposes). Mirrors the multi-file pipeline in Main():
+        /// per-UdonSharp-file syntax/semantic checks, plus the call-graph-driven static-method-file
+        /// check (CheckStaticMethodFieldAccess) and the type-reference-graph-driven referenced-type-file
+        /// check (CheckReferencedTypeStaticFields), so cross-file semantic checks are testable.
+        /// </summary>
+        internal static List<LintError> AnalyzeCodeMultiFile(params (string path, string source)[] files)
+        {
+            var syntaxTreeDict = new Dictionary<string, SyntaxTree>();
+            var rawPaths = new Dictionary<string, string>();
+
+            foreach (var (path, source) in files)
+            {
+                var tree = CSharpSyntaxTree.ParseText(source, path: path);
+                var normalizedPath = Path.GetFullPath(path);
+                syntaxTreeDict[normalizedPath] = tree;
+                rawPaths[normalizedPath] = path;
+            }
+
+            var compilation = CreateCompilation(syntaxTreeDict.Values.ToList());
+
+            var udonSharpFiles = syntaxTreeDict
+                .Where(kvp => kvp.Value.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>().Any(IsUdonSharpBehaviourClass))
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            var callGraph = BuildCallGraph(compilation, udonSharpFiles);
+            var typeReferenceGraph = BuildTypeReferenceGraph(compilation, udonSharpFiles);
+
+            var errors = new List<LintError>();
+
+            foreach (var normalizedPath in udonSharpFiles)
+            {
+                var root = syntaxTreeDict[normalizedPath].GetRoot();
+                var filePath = rawPaths[normalizedPath];
+
+                CheckTryCatchStatements(root, filePath, errors);
+                CheckThrowStatements(root, filePath, errors);
+                CheckLocalFunctions(root, filePath, errors);
+                CheckObjectInitializers(root, filePath, errors);
+                CheckCollectionInitializers(root, filePath, errors);
+                CheckMultidimensionalArrays(root, filePath, errors);
+                CheckConstructors(root, filePath, errors);
+                CheckGenericMethods(root, filePath, errors);
+                CheckGenericClasses(root, filePath, errors);
+                CheckStaticFields(root, filePath, errors);
+                CheckNestedTypes(root, filePath, errors);
+                CheckNetworkCallableMethods(root, filePath, errors);
+                CheckTextMeshProAPIs(root, filePath, errors);
+                CheckGeneralUnexposedAPIs(root, filePath, errors);
+                CheckMethodOverloads(root, filePath, errors);
+                CheckInterfaces(root, filePath, errors);
+                CheckCrossFileFieldAccess(root, filePath, errors, compilation);
+                CheckCrossFileMethodInvocation(root, filePath, errors, compilation);
+                CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
+                CheckSendCustomEventMethods(root, filePath, errors, compilation);
+                CheckNullConditionalOperators(root, filePath, errors);
+                CheckAsyncAwait(root, filePath, errors);
+                CheckGotoStatements(root, filePath, errors);
+                CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
+                CheckGenericCollectionTypes(root, filePath, errors);
+                CheckLinqUsage(root, filePath, errors, compilation);
+                CheckLambdaAndDelegates(root, filePath, errors);
+                CheckCoroutineUsage(root, filePath, errors);
+                CheckUIEventListenerRegistration(root, filePath, errors);
+                CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
+                CheckSynchronizationConstraints(root, filePath, errors);
+            }
+
+            foreach (var entry in callGraph)
+            {
+                if (syntaxTreeDict.TryGetValue(entry.Key, out var tree))
+                {
+                    CheckStaticMethodFieldAccess(tree.GetRoot(), rawPaths[entry.Key], errors, compilation, entry.Value);
+                }
+            }
+
+            foreach (var entry in typeReferenceGraph)
+            {
+                if (syntaxTreeDict.TryGetValue(entry.Key, out var tree))
+                {
+                    CheckReferencedTypeStaticFields(tree.GetRoot(), rawPaths[entry.Key], errors, entry.Value);
+                }
+            }
+
+            return errors;
+        }
+
         #endregion
 
         private static bool IsUdonSharpBehaviourClass(ClassDeclarationSyntax classDecl)
