@@ -153,27 +153,51 @@ namespace tktco.UdonSharpLinter
             return _hasErrors ? 1 : 0;
         }
 
+        private static readonly Lazy<List<MetadataReference>> _trustedPlatformAssemblyReferences =
+            new Lazy<List<MetadataReference>>(LoadTrustedPlatformAssemblyReferences);
+
         /// <summary>
         /// .NETランタイムの信頼済みプラットフォームアセンブリ(BCL全体)を参照リストとして取得する。
         /// typeof(X).Assemblyを個別に参照するだけでは、型転送されたBCL型(例: IEnumerable&lt;T&gt;)が
-        /// 解決できない場合があるため、実行中のランタイムが持つアセンブリ一覧を丸ごと利用する
+        /// 解決できない場合があるため、実行中のランタイムが持つアセンブリ一覧を丸ごと利用する。
+        /// プロセス内で一度だけ読み込みキャッシュし、呼び出し元が結果に追加できるよう毎回コピーを返す
         /// </summary>
         private static List<MetadataReference> GetTrustedPlatformAssemblyReferences()
         {
+            return new List<MetadataReference>(_trustedPlatformAssemblyReferences.Value);
+        }
+
+        private static List<MetadataReference> LoadTrustedPlatformAssemblyReferences()
+        {
+            var assemblyPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             var trustedAssembliesPaths = AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string;
-            if (string.IsNullOrEmpty(trustedAssembliesPaths))
+            if (!string.IsNullOrEmpty(trustedAssembliesPaths))
             {
-                return new List<MetadataReference>
+                foreach (var path in trustedAssembliesPaths.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
                 {
-                    MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                    MetadataReference.CreateFromFile(typeof(Console).Assembly.Location),
-                    MetadataReference.CreateFromFile(typeof(System.Linq.Enumerable).Assembly.Location),
-                };
+                    assemblyPaths.Add(path);
+                }
             }
 
-            return trustedAssembliesPaths
-                .Split(Path.PathSeparator)
-                .Where(path => !string.IsNullOrEmpty(path))
+            // TRUSTED_PLATFORM_ASSEMBLIESが取得できない特殊なホスト環境向けのフォールバック:
+            // 現在のAssemblyLoadContextに読み込み済みのアセンブリも参照に加える
+            foreach (var assembly in System.Runtime.Loader.AssemblyLoadContext.Default.Assemblies)
+            {
+                if (!assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
+                {
+                    assemblyPaths.Add(assembly.Location);
+                }
+            }
+
+            if (assemblyPaths.Count == 0)
+            {
+                assemblyPaths.Add(typeof(object).Assembly.Location);
+                assemblyPaths.Add(typeof(Console).Assembly.Location);
+                assemblyPaths.Add(typeof(System.Linq.Enumerable).Assembly.Location);
+            }
+
+            return assemblyPaths
                 .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
                 .ToList();
         }
@@ -557,13 +581,14 @@ namespace tktco.UdonSharpLinter
         }
 
         /// <summary>
-        /// 呼び出しのレシーバーが暗黙のthis、または明示的な`this.`であるか判定する
+        /// 呼び出しのレシーバーが暗黙のthis、明示的な`this.`、または`base.`であるか判定する
         /// (他のオブジェクトに対する呼び出し、例: other.RequestSerialization()を除外するため)
         /// </summary>
         private static bool IsSelfReceiverInvocation(InvocationExpressionSyntax invocation)
         {
             return invocation.Expression is IdentifierNameSyntax ||
-                   (invocation.Expression is MemberAccessExpressionSyntax member && member.Expression is ThisExpressionSyntax);
+                   (invocation.Expression is MemberAccessExpressionSyntax member &&
+                    (member.Expression is ThisExpressionSyntax || member.Expression is BaseExpressionSyntax));
         }
 
         #endregion
@@ -2328,12 +2353,27 @@ namespace tktco.UdonSharpLinter
                 }
                 else if (node is InvocationExpressionSyntax invocation &&
                     (IsLinqNamespaceText(invocation.Expression.ToString()) ||
-                     (semanticModel.GetSymbolInfo(invocation).Symbol as IMethodSymbol)
-                         ?.ContainingType?.ContainingNamespace?.ToDisplayString() == "System.Linq"))
+                     ResolvesToLinqMethod(invocation, semanticModel)))
                 {
                     AddError(errors, filePath, invocation, LinqUsageMessage, LintErrorCodes.LinqUsage);
                 }
             }
+        }
+
+        /// <summary>
+        /// 呼び出しがSystem.Linqのメソッドとして解決されるか判定する。
+        /// オーバーロード解決の曖昧さ等でSymbolがnullになる場合は、CandidateSymbolsもフォールバックとして確認する
+        /// (例: LINQのWhereと同名・同シグネチャの拡張メソッドが別の名前空間にも存在する場合)
+        /// </summary>
+        private static bool ResolvesToLinqMethod(InvocationExpressionSyntax invocation, SemanticModel semanticModel)
+        {
+            var symbolInfo = semanticModel.GetSymbolInfo(invocation);
+            IEnumerable<ISymbol> candidates = symbolInfo.Symbol != null
+                ? new ISymbol[] { symbolInfo.Symbol }
+                : symbolInfo.CandidateSymbols;
+
+            return candidates.OfType<IMethodSymbol>()
+                .Any(m => m.ContainingType?.ContainingNamespace?.ToDisplayString() == "System.Linq");
         }
 
         /// <summary>

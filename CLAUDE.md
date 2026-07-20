@@ -41,7 +41,7 @@ npm run version
 
 ### Error Code System
 
-Error codes are defined in `LintErrorCodes` class (Program.cs:392+) and follow the pattern `UDON###`. Codes are grouped by when they were added rather than a strict numeric range per category; current groupings:
+Error codes are defined in `LintErrorCodes` class (search for `internal static class LintErrorCodes` in Program.cs) and follow the pattern `UDON###`. Codes are grouped by when they were added rather than a strict numeric range per category; current groupings:
 - Basic language feature restrictions: 1-9, 11, 12, 18, 27, 29, 30, 32-35
 - API and attribute restrictions: 13, 14, 16, 17, 19, 26, 36, 37
 - Cross-file and semantic analysis: 20-22, 25, 31

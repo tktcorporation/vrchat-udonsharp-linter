@@ -166,6 +166,43 @@ public class TestBehaviour : UdonSharpBehaviour
     }
 
     [Fact]
+    public void AmbiguousLinqOverload_StillReportsError()
+    {
+        // System.Linqと衝突する同名の拡張メソッドが別の名前空間にも存在する場合、
+        // オーバーロード解決があいまいになりGetSymbolInfo().Symbolはnullになるが、
+        // CandidateSymbolsにSystem.Linqの候補が含まれていれば検出できるはず
+        var code = @"
+using UdonSharp;
+using System.Linq;
+using ThirdPartyLib;
+
+namespace ThirdPartyLib
+{
+    public static class CustomExtensions
+    {
+        public static System.Collections.Generic.IEnumerable<T> Where<T>(
+            this System.Collections.Generic.IEnumerable<T> source, System.Func<T, bool> predicate)
+        {
+            return source;
+        }
+    }
+}
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+        int[] values = new int[] { 1, 2, 3 };
+        var result = values.Where(x => x > 0);
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        // "values.Where(x => x > 0)" はテキスト上System.Linqを含まないため、CandidateSymbolsの
+        // フォールバックでのみ検出できる(呼び出しは23行目)
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.LinqUsage && e.Line == 23);
+    }
+
+    [Fact]
     public void NoLinqUsingDirective_NoError()
     {
         var code = @"
