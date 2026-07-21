@@ -1,5 +1,92 @@
 # tktco.UdonSharpLinter
 
+## 0.5.0
+
+### Minor Changes
+
+- [#23](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/23) [`253ef8f`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/253ef8fef7977a9d411883aa37ffcf1cd5f3d0bd) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Add new lint checks inspired by agent-skills-vrc-udon
+
+  New checks added:
+
+  - UDON032: Generic collection types (`List<T>`, `Dictionary<K,V>`, `HashSet<T>`, `Queue<T>`, `Stack<T>`) are not supported in UdonSharp
+  - UDON033: LINQ (`using System.Linq;`) is not supported in UdonSharp
+  - UDON034: Lambda expressions, `delegate` declarations, and C# `event` fields are not supported in UdonSharp
+  - UDON035: Coroutines (`yield return` / `StartCoroutine()`) are not supported in UdonSharp
+  - UDON036: `UnityEvent.AddListener()` cannot reliably register UdonSharp methods at runtime
+  - UDON037: `GetComponent<UdonBehaviour>()` is not supported; use `(UdonBehaviour)GetComponent(typeof(UdonBehaviour))` instead
+  - UDON038: `[UdonSynced]` fields conflict with `[UdonBehaviourSyncMode(BehaviourSyncMode.NoVariableSync)]`
+  - UDON039: Manual sync mode with `[UdonSynced]` fields requires an explicit `RequestSerialization()` call
+  - UDON040: Warns when a behaviour has an excessive number of `[UdonSynced]` fields (network bandwidth budget)
+  - UDON041: Warns when `int[]`/`float[]` fields are synced, suggesting `byte[]`/`short[]` instead
+
+  Also added a new "Networking and Synchronization" section to the README, and unit tests covering all new checks.
+
+### Patch Changes
+
+- [#35](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/35) [`8f21526`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/8f215261aaf504434878cca0c568064cc137d62c) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Fix attribute matching to also resolve alias-qualified names (e.g. `[global::NetworkCallable]`) (#29, thanks @dchaudhari7177!)
+
+  The exact-name attribute match introduced for #27 extracted an attribute's
+  simple name by splitting `a.Name.ToString()` on `.`, which missed
+  alias-qualified attribute names (`global::X`) since they contain no `.` to
+  split on — such attributes were silently not recognized. `IsAttributeNameMatch`
+  now resolves the simple name from the attribute's syntax node directly
+  (`QualifiedNameSyntax`/`AliasQualifiedNameSyntax`/`SimpleNameSyntax`), fixing
+  this case. Also adds the first test coverage for `[NetworkCallable]` attribute
+  matching (decoy, exact, explicit `Attribute` suffix, namespace-qualified, and
+  alias-qualified), which had none previously despite being called out in #27.
+
+- [#34](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/34) [`cc9738d`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/cc9738dbfa14132832f03fac2da6bc1f5f5e125e) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Add automated test coverage for cross-file semantic checks (#31)
+
+  `CheckCrossFileFieldAccess`, `CheckCrossFileMethodInvocation`,
+  `CheckUdonBehaviourSerializableClassUsage`, `CheckStaticMethodFieldAccess`,
+  `BuildCallGraph`, and `BuildTypeReferenceGraph` previously had zero
+  automated tests, since they require multiple `SyntaxTree`s in one
+  `Compilation` to exercise. Added a new `Program.AnalyzeCodeMultiFile(params
+(string path, string source)[] files)` test helper that mirrors the
+  multi-file pipeline in `Main()`, plus a `CrossFileSemanticCheckTests` suite
+  covering these checks (including negative cases for same-file access and
+  unreachable static methods).
+
+- [#34](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/34) [`09b81c8`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/09b81c8ea814aab0d6295fd1d4de7aedef540569) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Fix HasAttribute/GetUdonBehaviourSyncMode using substring matching (#27)
+
+  `HasAttribute()` and `GetUdonBehaviourSyncMode()` matched attribute usages
+  via `.Contains(...)`, so a custom attribute whose name merely _contained_
+  a checked-for name as a substring (e.g. `[UdonSyncedMetadata]` vs.
+  `[UdonSynced]`, or a decoy `[FooUdonBehaviourSyncModeBar]`) could be
+  mistaken for the real attribute, causing UDON038-041/the sync-mode checks
+  to misfire. Both helpers now compare against the attribute's simple name
+  exactly (accounting for the optional `Attribute` suffix).
+
+- [#34](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/34) [`d36e5b2`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/d36e5b2ce3b1e6a734f5995fc8827b45328e5c9b) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Fix semantic analysis missing Unity/VRC type info in real projects (#28)
+
+  `CreateCompilation` used to only look for three hardcoded DLL names
+  (`UnityEngine.dll`, `VRC.SDKBase.dll`, `UdonSharp.Runtime.dll`) under
+  `Library/ScriptAssemblies`. Modern Unity (2018.1+) splits engine and SDK
+  types across many per-module assemblies (e.g. `UnityEngine.CoreModule.dll`,
+  `VRC.Udon.dll`), so a monolithic `UnityEngine.dll` typically doesn't exist
+  in a real, already-opened VRChat project — the old code silently loaded
+  none of these references in the common case.
+
+  `CreateCompilation` now globs every `*.dll` under `Library/ScriptAssemblies`
+  instead, so semantic checks that depend on resolving Unity/VRC types (e.g.
+  `UnityEvent`, `UdonBehaviour`) actually get that type information when run
+  inside a real project directory.
+
+- [#34](https://github.com/tktcorporation/vrchat-udonsharp-linter/pull/34) [`c7f976f`](https://github.com/tktcorporation/vrchat-udonsharp-linter/commit/c7f976f94760c8504dedae9d7cc87a6713f5f2bc) Thanks [@tktcorporation](https://github.com/tktcorporation)! - Verify and lock in that globbing Library/ScriptAssemblies is safe with stale project DLLs
+
+  `Library/ScriptAssemblies` contains not just the Unity/VRC SDK but also the
+  project's own previously-compiled script assemblies (e.g.
+  `Assembly-CSharp.dll`), so after #28's `*.dll` glob, a metadata reference
+  can contain a type with the exact same name as one of the `.cs` files also
+  being parsed as source. Verified via a regression test that this doesn't
+  corrupt symbol resolution: the C# compiler prefers the source-declared type
+  over the metadata one for a same-named type (CS0436), so
+  `CheckCrossFileFieldAccess` and friends keep resolving to the correct
+  source symbol. `CreateCompilation` now accepts an optional
+  `scriptAssembliesDirOverride` (and `AnalyzeCodeMultiFile` a matching
+  overload) so this scenario is testable without mutating the process's
+  current directory.
+
 ## 0.4.0
 
 ### Minor Changes
