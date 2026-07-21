@@ -558,7 +558,7 @@ namespace tktco.UdonSharpLinter
         private static bool HasAttribute(MemberDeclarationSyntax member, string attributeName)
         {
             return member.AttributeLists.Any(al =>
-                al.Attributes.Any(a => IsAttributeNameMatch(a.Name.ToString(), attributeName)));
+                al.Attributes.Any(a => IsAttributeNameMatch(a.Name, attributeName)));
         }
 
         /// <summary>
@@ -568,21 +568,27 @@ namespace tktco.UdonSharpLinter
         {
             return classDecl.AttributeLists
                 .SelectMany(al => al.Attributes)
-                .FirstOrDefault(a => IsAttributeNameMatch(a.Name.ToString(), "UdonBehaviourSyncMode"))
+                .FirstOrDefault(a => IsAttributeNameMatch(a.Name, "UdonBehaviourSyncMode"))
                 ?.ArgumentList?.Arguments.FirstOrDefault()?.ToString();
         }
 
         /// <summary>
-        /// Compares an attribute usage's name syntax (e.g. "UdonSynced", "Foo.UdonSyncedAttribute")
-        /// against a target simple name exactly, rather than via substring matching, so a decoy
-        /// attribute like [UdonSyncedMetadata] doesn't get mistaken for [UdonSynced].
-        /// C# allows omitting the "Attribute" suffix at the usage site, so both forms are accepted.
+        /// Compares an attribute usage's name against a target simple name exactly, rather than
+        /// via substring matching, so a decoy attribute like [UdonSyncedMetadata] doesn't get
+        /// mistaken for [UdonSynced]. Works on the name's syntax node instead of its string form,
+        /// which also handles alias-qualified names like [global::NetworkCallable] that a
+        /// last-dot string split misses. C# allows omitting the "Attribute" suffix at the usage
+        /// site, so both forms are accepted.
         /// </summary>
-        private static bool IsAttributeNameMatch(string actualAttributeNameSyntax, string attributeName)
+        private static bool IsAttributeNameMatch(NameSyntax actualAttributeName, string attributeName)
         {
-            var lastDot = actualAttributeNameSyntax.LastIndexOf('.');
-            var simpleName = lastDot >= 0 ? actualAttributeNameSyntax.Substring(lastDot + 1) : actualAttributeNameSyntax;
-
+            var simpleName = actualAttributeName switch
+            {
+                QualifiedNameSyntax qualified => qualified.Right.Identifier.ValueText,
+                AliasQualifiedNameSyntax aliasQualified => aliasQualified.Name.Identifier.ValueText,
+                SimpleNameSyntax simple => simple.Identifier.ValueText,
+                _ => actualAttributeName.ToString(),
+            };
             return simpleName == attributeName || simpleName == attributeName + "Attribute";
         }
 
