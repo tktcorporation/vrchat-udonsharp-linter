@@ -7,7 +7,7 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changeset') && github.event.pull_request.head.ref != 'changeset-release/master'"
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changeset') && !(github.event.pull_request.head.ref == 'changeset-release/master' && github.event.pull_request.head.repo.full_name == github.repository)"
 
     steps:
       - uses: actions/checkout@v4
