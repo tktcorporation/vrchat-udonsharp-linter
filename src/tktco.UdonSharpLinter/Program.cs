@@ -304,9 +304,9 @@ namespace tktco.UdonSharpLinter
                 CheckLinqUsage(root, filePath, errors, compilation);
                 CheckLambdaAndDelegates(root, filePath, errors);
                 CheckCoroutineUsage(root, filePath, errors);
-                CheckUIEventListenerRegistration(root, filePath, errors);
-                CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
-                CheckSynchronizationConstraints(root, filePath, errors);
+                CheckUIEventListenerRegistration(root, filePath, errors, compilation);
+                CheckGenericGetComponentUdonBehaviour(root, filePath, errors, compilation);
+                CheckSynchronizationConstraints(root, filePath, errors, compilation);
 
                 // Report errors
                 foreach (var error in errors)
@@ -562,14 +562,14 @@ namespace tktco.UdonSharpLinter
         }
 
         /// <summary>
-        /// Helper method to get the [UdonBehaviourSyncMode(...)] argument text of a class, or null if absent
+        /// Helper method to get the [UdonBehaviourSyncMode(...)] argument expression of a class, or null if absent
         /// </summary>
-        private static string GetUdonBehaviourSyncMode(ClassDeclarationSyntax classDecl)
+        private static ExpressionSyntax? GetUdonBehaviourSyncModeArgument(ClassDeclarationSyntax classDecl)
         {
             return classDecl.AttributeLists
                 .SelectMany(al => al.Attributes)
                 .FirstOrDefault(a => IsAttributeNameMatch(a.Name, "UdonBehaviourSyncMode"))
-                ?.ArgumentList?.Arguments.FirstOrDefault()?.ToString();
+                ?.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
         }
 
         /// <summary>
@@ -594,12 +594,14 @@ namespace tktco.UdonSharpLinter
 
         /// <summary>
         /// Helper method to check whether an invocation calls a method with the given bare name,
-        /// whether called unqualified (IdentifierNameSyntax) or via member access (MemberAccessExpressionSyntax)
+        /// whether called unqualified (IdentifierNameSyntax), via member access (MemberAccessExpressionSyntax),
+        /// or via a null-conditional member access (MemberBindingExpressionSyntax, e.g. `x?.Foo()`)
         /// </summary>
         private static bool IsInvocationOf(InvocationExpressionSyntax invocation, string methodName)
         {
             return (invocation.Expression is IdentifierNameSyntax identifier && identifier.Identifier.Text == methodName) ||
-                   (invocation.Expression is MemberAccessExpressionSyntax member && member.Name.Identifier.Text == methodName);
+                   (invocation.Expression is MemberAccessExpressionSyntax member && member.Name.Identifier.Text == methodName) ||
+                   (invocation.Expression is MemberBindingExpressionSyntax binding && binding.Name.Identifier.Text == methodName);
         }
 
         /// <summary>
@@ -2506,24 +2508,71 @@ namespace tktco.UdonSharpLinter
         /// NG: button.onClick.AddListener(OnButtonClick);
         /// OK: インスペクターのOnClickイベントでUdonBehaviour.SendCustomEventを設定する
         /// </summary>
-        private static void CheckUIEventListenerRegistration(SyntaxNode root, string filePath, List<LintError> errors)
+        private static void CheckUIEventListenerRegistration(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
         {
-            // UnityEventのフィールド命名規則(onClick, onValueChangedなど)に一致するレシーバー経由の
-            // AddListener呼び出しのみを対象にし、無関係な独自メソッド(例: manager.AddListener(id))への
-            // 誤検知を避ける。レシーバーは`button.onClick`のようなメンバーアクセスだけでなく、
-            // `onReady`のようにUnityEventが直接フィールド/プロパティとして公開されている場合も対象にする
-            var addListenerInvocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>()
-                .Where(inv => IsInvocationOf(inv, "AddListener") &&
-                              inv.Expression is MemberAccessExpressionSyntax member &&
-                              IsUnityEventLikeReceiver(member.Expression));
+            var semanticModel = compilation.GetSemanticModel(root.SyntaxTree);
 
-            foreach (var invocation in addListenerInvocations)
+            // UnityEventのフィールド命名規則(onClick, onValueChangedなど)に一致するレシーバー、または
+            // セマンティックモデルでUnityEngine.Events.UnityEventBaseを継承すると解決できるレシーバー
+            // 経由のAddListener呼び出しを対象にし、無関係な独自メソッド(例: manager.AddListener(id))への
+            // 誤検知を避ける。レシーバーは`button.onClick`のような通常のメンバーアクセス、
+            // `button.onClick?.AddListener(...)`のようなnull条件演算子経由のメンバーアクセス、
+            // `onReady`のようにUnityEventが直接フィールド/プロパティとして公開されている場合、いずれにも対応する
+            foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
             {
-                AddError(errors, filePath, invocation,
-                    "UnityEvent.AddListener() cannot reliably register UdonSharp methods at runtime. " +
-                    "Wire the event to a SendCustomEvent call from the Inspector instead.",
-                    LintErrorCodes.UIEventListenerRegistration);
+                if (!IsInvocationOf(invocation, "AddListener"))
+                    continue;
+
+                var receiver = GetAddListenerReceiver(invocation);
+                if (receiver == null)
+                    continue;
+
+                if (IsUnityEventLikeReceiver(receiver) || IsUnityEventTypedReceiver(receiver, semanticModel))
+                {
+                    AddError(errors, filePath, invocation,
+                        "UnityEvent.AddListener() cannot reliably register UdonSharp methods at runtime. " +
+                        "Wire the event to a SendCustomEvent call from the Inspector instead.",
+                        LintErrorCodes.UIEventListenerRegistration);
+                }
             }
+        }
+
+        /// <summary>
+        /// AddListener呼び出しのレシーバー式を取得する。通常のメンバーアクセス(`button.onClick.AddListener(...)`)と、
+        /// null条件演算子によるメンバーアクセス(`button.onClick?.AddListener(...)`、Roslyn上は
+        /// MemberBindingExpressionSyntaxとConditionalAccessExpressionSyntaxで表現される)の両方に対応する
+        /// </summary>
+        private static ExpressionSyntax? GetAddListenerReceiver(InvocationExpressionSyntax invocation)
+        {
+            if (invocation.Expression is MemberAccessExpressionSyntax member)
+                return member.Expression;
+
+            if (invocation.Expression is MemberBindingExpressionSyntax &&
+                invocation.Parent is ConditionalAccessExpressionSyntax conditionalAccess &&
+                conditionalAccess.WhenNotNull == invocation)
+            {
+                return conditionalAccess.Expression;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// レシーバー式の型がUnityEngine.Events.UnityEventBase(またはそれを継承する型、例: UnityEvent)に
+        /// 解決されるか、セマンティックモデルで判定する。命名規則によるヒューリスティック
+        /// (IsUnityEventLikeReceiver)では検出できない、"on"で始まらないフィールド名
+        /// (例: `readyEvent.AddListener(...)`)もこれで検出できる
+        /// </summary>
+        private static bool IsUnityEventTypedReceiver(ExpressionSyntax receiver, SemanticModel semanticModel)
+        {
+            var current = semanticModel.GetTypeInfo(receiver).Type;
+            while (current != null)
+            {
+                if (current.Name == "UnityEventBase" && current.ContainingNamespace?.ToDisplayString() == "UnityEngine.Events")
+                    return true;
+                current = current.BaseType;
+            }
+            return false;
         }
 
         /// <summary>
@@ -2537,12 +2586,14 @@ namespace tktco.UdonSharpLinter
         /// NG: var udon = GetComponent&lt;UdonBehaviour&gt;();
         /// OK: var udon = (UdonBehaviour)GetComponent(typeof(UdonBehaviour));
         /// </summary>
-        private static void CheckGenericGetComponentUdonBehaviour(SyntaxNode root, string filePath, List<LintError> errors)
+        private static void CheckGenericGetComponentUdonBehaviour(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
         {
+            var semanticModel = compilation.GetSemanticModel(root.SyntaxTree);
+
             var genericGetComponents = root.DescendantNodes().OfType<GenericNameSyntax>()
                 .Where(g => g.Identifier.Text == "GetComponent" &&
                             g.TypeArgumentList.Arguments.Count == 1 &&
-                            GetRightmostTypeName(g.TypeArgumentList.Arguments[0]) == "UdonBehaviour");
+                            IsUdonBehaviourType(g.TypeArgumentList.Arguments[0], semanticModel));
 
             foreach (var generic in genericGetComponents)
             {
@@ -2550,6 +2601,22 @@ namespace tktco.UdonSharpLinter
                     "GetComponent<UdonBehaviour>() is not supported. Use (UdonBehaviour)GetComponent(typeof(UdonBehaviour)) instead.",
                     LintErrorCodes.GenericGetComponentUdonBehaviour, DiagnosticSeverity.Warning);
             }
+        }
+
+        /// <summary>
+        /// 型引数がVRC.Udon.UdonBehaviourを指しているか判定する。テキスト上の最後のドット区切り
+        /// セグメントでの判定に加え、セマンティックモデルでの型解決も行う(例: `using UB = VRC.Udon.UdonBehaviour;`
+        /// のような型エイリアス経由の参照は、テキストだけでは"UB"となり検出できないため)
+        /// </summary>
+        private static bool IsUdonBehaviourType(TypeSyntax typeArgument, SemanticModel semanticModel)
+        {
+            if (GetRightmostTypeName(typeArgument) == "UdonBehaviour")
+                return true;
+
+            var typeSymbol = semanticModel.GetTypeInfo(typeArgument).Type;
+            return typeSymbol != null &&
+                   typeSymbol.Name == "UdonBehaviour" &&
+                   typeSymbol.ContainingNamespace?.ToDisplayString() == "VRC.Udon";
         }
 
         /// <summary>
@@ -2583,38 +2650,83 @@ namespace tktco.UdonSharpLinter
         /// NG: Manual同期でRequestSerialization()を一度も呼ばない
         /// OK: 同期変数は必要最小限に絞り、Manual同期では変更後にRequestSerialization()を呼ぶ
         /// </summary>
-        private static void CheckSynchronizationConstraints(SyntaxNode root, string filePath, List<LintError> errors)
+        private static void CheckSynchronizationConstraints(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
         {
+            var semanticModel = compilation.GetSemanticModel(root.SyntaxTree);
             var classes = FindUdonSharpBehaviourClasses(root);
 
             foreach (var classDecl in classes)
             {
-                var syncMode = GetUdonBehaviourSyncMode(classDecl);
+                var syncModeArgument = GetUdonBehaviourSyncModeArgument(classDecl);
                 var syncedFields = classDecl.Members.OfType<FieldDeclarationSyntax>()
                     .Where(f => HasAttribute(f, "UdonSynced"))
                     .ToList();
 
-                CheckSyncModeConflict(syncMode, syncedFields, filePath, errors);
-                CheckManualSyncMissingRequestSerialization(classDecl, syncMode, syncedFields, filePath, errors);
+                CheckSyncModeConflict(syncModeArgument, semanticModel, syncedFields, filePath, errors);
+                CheckManualSyncMissingRequestSerialization(classDecl, syncModeArgument, semanticModel, syncedFields, filePath, errors);
                 CheckExcessiveSyncedVariables(classDecl, syncedFields, filePath, errors);
                 CheckLargeArraySynced(syncedFields, filePath, errors);
             }
         }
 
         /// <summary>
-        /// syncModeテキストがNone/NoVariableSync(同期変数を禁止するモード)を指しているか判定する。
-        /// 完全修飾名(BehaviourSyncMode.None)、using static等による裸名(None)の両方を許容する。
+        /// syncMode引数がNone/NoVariableSync(同期変数を禁止するモード)を指しているか判定する。
+        /// 完全修飾名(BehaviourSyncMode.None)、using static等による裸名(None)はテキスト判定で
+        /// 検出できるが、定数フィールド経由の間接参照やキャストなど、テキストの末尾がメンバー名に
+        /// ならない形はセマンティックモデルでの定数値比較(MatchesEnumMemberByValue)で捕捉する。
         /// </summary>
-        private static bool IsNoSyncMode(string syncMode)
+        private static bool IsNoSyncMode(ExpressionSyntax syncModeArgument, SemanticModel semanticModel)
         {
-            var bareName = GetRightmostDottedSegment(syncMode);
-            return bareName == "None" || bareName == "NoVariableSync";
+            var bareName = GetRightmostDottedSegment(syncModeArgument.ToString());
+            if (bareName == "None" || bareName == "NoVariableSync")
+                return true;
+
+            return MatchesEnumMemberByValue(syncModeArgument, semanticModel, "None", "NoVariableSync");
         }
 
-        private static void CheckSyncModeConflict(string syncMode,
+        /// <summary>
+        /// syncMode引数がManual同期モードを指しているか判定する。IsNoSyncModeと同様、テキストでの
+        /// 部分一致に加え、セマンティックモデルでの定数値比較もフォールバックとして行う。
+        /// </summary>
+        private static bool IsManualSyncMode(ExpressionSyntax syncModeArgument, SemanticModel semanticModel)
+        {
+            if (syncModeArgument.ToString().Contains("Manual"))
+                return true;
+
+            return MatchesEnumMemberByValue(syncModeArgument, semanticModel, "Manual");
+        }
+
+        /// <summary>
+        /// syncMode引数の定数値を、同じ列挙型が持つ指定名のメンバーの定数値と比較する。
+        /// エイリアスや定数フィールド経由の間接参照、キャストなど、テキストだけでは判定できない形でも、
+        /// 実際の列挙型が解決できるプロジェクト(#28以降、Library/ScriptAssembliesからVRC SDKが
+        /// 参照される場合)では正しく判定できる。列挙体の実際の整数値はSDKバージョンによって
+        /// 異なりうるため、値をハードコードせず常に実際の型定義から動的に取得して比較する。
+        /// 列挙型自体が解決できない場合はfalseを返し、呼び出し元のテキスト判定にフォールバックする。
+        /// </summary>
+        private static bool MatchesEnumMemberByValue(ExpressionSyntax syncModeArgument, SemanticModel semanticModel, params string[] memberNames)
+        {
+            var argumentConstant = semanticModel.GetConstantValue(syncModeArgument);
+            if (!argumentConstant.HasValue)
+                return false;
+
+            if (!(semanticModel.GetTypeInfo(syncModeArgument).Type is INamedTypeSymbol enumType) || enumType.TypeKind != TypeKind.Enum)
+                return false;
+
+            foreach (var memberName in memberNames)
+            {
+                var member = enumType.GetMembers(memberName).OfType<IFieldSymbol>().FirstOrDefault();
+                if (member != null && member.HasConstantValue && Equals(member.ConstantValue, argumentConstant.Value))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static void CheckSyncModeConflict(ExpressionSyntax? syncModeArgument, SemanticModel semanticModel,
             List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
         {
-            if (syncMode == null || !IsNoSyncMode(syncMode))
+            if (syncModeArgument == null || !IsNoSyncMode(syncModeArgument, semanticModel))
                 return;
 
             foreach (var field in syncedFields)
@@ -2622,17 +2734,17 @@ namespace tktco.UdonSharpLinter
                 foreach (var variable in field.Declaration.Variables)
                 {
                     AddError(errors, filePath, variable,
-                        $"[UdonSynced] field found in a class with [UdonBehaviourSyncMode({syncMode})], which forbids synced " +
+                        $"[UdonSynced] field found in a class with [UdonBehaviourSyncMode({syncModeArgument})], which forbids synced " +
                         "fields entirely. Synced fields require Continuous or Manual sync mode.",
                         LintErrorCodes.SyncModeConflict);
                 }
             }
         }
 
-        private static void CheckManualSyncMissingRequestSerialization(ClassDeclarationSyntax classDecl, string syncMode,
-            List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
+        private static void CheckManualSyncMissingRequestSerialization(ClassDeclarationSyntax classDecl, ExpressionSyntax? syncModeArgument,
+            SemanticModel semanticModel, List<FieldDeclarationSyntax> syncedFields, string filePath, List<LintError> errors)
         {
-            if (syncMode == null || !syncMode.Contains("Manual") || !syncedFields.Any())
+            if (syncModeArgument == null || !IsManualSyncMode(syncModeArgument, semanticModel) || !syncedFields.Any())
                 return;
 
             bool callsRequestSerialization = classDecl.DescendantNodes().OfType<InvocationExpressionSyntax>()
@@ -2796,9 +2908,9 @@ namespace tktco.UdonSharpLinter
             CheckLinqUsage(root, filePath, errors, compilation);
             CheckLambdaAndDelegates(root, filePath, errors);
             CheckCoroutineUsage(root, filePath, errors);
-            CheckUIEventListenerRegistration(root, filePath, errors);
-            CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
-            CheckSynchronizationConstraints(root, filePath, errors);
+            CheckUIEventListenerRegistration(root, filePath, errors, compilation);
+            CheckGenericGetComponentUdonBehaviour(root, filePath, errors, compilation);
+            CheckSynchronizationConstraints(root, filePath, errors, compilation);
 
             return errors;
         }
@@ -2878,9 +2990,9 @@ namespace tktco.UdonSharpLinter
                 CheckLinqUsage(root, filePath, errors, compilation);
                 CheckLambdaAndDelegates(root, filePath, errors);
                 CheckCoroutineUsage(root, filePath, errors);
-                CheckUIEventListenerRegistration(root, filePath, errors);
-                CheckGenericGetComponentUdonBehaviour(root, filePath, errors);
-                CheckSynchronizationConstraints(root, filePath, errors);
+                CheckUIEventListenerRegistration(root, filePath, errors, compilation);
+                CheckGenericGetComponentUdonBehaviour(root, filePath, errors, compilation);
+                CheckSynchronizationConstraints(root, filePath, errors, compilation);
             }
 
             foreach (var entry in callGraph)

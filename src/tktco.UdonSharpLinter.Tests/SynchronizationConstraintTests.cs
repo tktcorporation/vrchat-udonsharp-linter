@@ -327,9 +327,120 @@ public class TestBehaviour : UdonSharpBehaviour
     public int value;
 }";
         var errors = Program.AnalyzeCode(code);
-        // No real [UdonBehaviourSyncMode(...)] attribute is present, so GetUdonBehaviourSyncMode
+        // No real [UdonBehaviourSyncMode(...)] attribute is present, so GetUdonBehaviourSyncModeArgument
         // should return null and neither sync-mode check should fire.
         Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.SyncModeConflict);
         Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.ManualSyncMissingRequestSerialization);
+    }
+
+    [Fact]
+    public void SyncModeViaConstantIndirection_NoVariableSync_ReportsSyncModeConflict()
+    {
+        // The sync mode is referenced through a const field rather than a direct enum member
+        // access, so the text-based rightmost-segment check ("NoSyncConstant" is neither "None"
+        // nor "NoVariableSync") can't catch it on its own — this needs semantic constant-value
+        // resolution against the real (here, stubbed) VRC.SDKBase.BehaviourSyncMode enum
+        // (regression test for #25).
+        var code = @"
+using UdonSharp;
+
+namespace VRC.SDKBase
+{
+    public enum BehaviourSyncMode
+    {
+        None,
+        Manual,
+        Continuous
+    }
+}
+
+public static class SyncModeConstants
+{
+    public const VRC.SDKBase.BehaviourSyncMode NoSyncConstant = VRC.SDKBase.BehaviourSyncMode.None;
+}
+
+[UdonBehaviourSyncMode(SyncModeConstants.NoSyncConstant)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public int value;
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.SyncModeConflict);
+    }
+
+    [Fact]
+    public void SyncModeViaConstantIndirection_ManualMode_NoConflictError()
+    {
+        var code = @"
+using UdonSharp;
+
+namespace VRC.SDKBase
+{
+    public enum BehaviourSyncMode
+    {
+        None,
+        Manual,
+        Continuous
+    }
+}
+
+public static class SyncModeConstants
+{
+    public const VRC.SDKBase.BehaviourSyncMode ActiveSyncMode = VRC.SDKBase.BehaviourSyncMode.Manual;
+}
+
+[UdonBehaviourSyncMode(SyncModeConstants.ActiveSyncMode)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public int value;
+
+    public void SetValue(int v)
+    {
+        value = v;
+        RequestSerialization();
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.SyncModeConflict);
+    }
+
+    [Fact]
+    public void SyncModeViaConstantIndirection_ManualModeMissingRequestSerialization_ReportsWarning()
+    {
+        // Same constant-indirection shape as above, but verifying IsManualSyncMode's semantic
+        // fallback (not just IsNoSyncMode's) picks up the Manual sync mode correctly.
+        var code = @"
+using UdonSharp;
+
+namespace VRC.SDKBase
+{
+    public enum BehaviourSyncMode
+    {
+        None,
+        Manual,
+        Continuous
+    }
+}
+
+public static class SyncModeConstants
+{
+    public const VRC.SDKBase.BehaviourSyncMode ActiveSyncMode = VRC.SDKBase.BehaviourSyncMode.Manual;
+}
+
+[UdonBehaviourSyncMode(SyncModeConstants.ActiveSyncMode)]
+public class TestBehaviour : UdonSharpBehaviour
+{
+    [UdonSynced]
+    public int value;
+
+    public void SetValue(int v)
+    {
+        value = v;
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.ManualSyncMissingRequestSerialization);
     }
 }

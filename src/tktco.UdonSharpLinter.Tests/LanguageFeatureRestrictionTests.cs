@@ -498,6 +498,90 @@ public class EventManager
     }
 
     [Fact]
+    public void NonOnPrefixedUnityEventTypedFieldAddListener_ReportsError()
+    {
+        // A UnityEventBase-derived field that doesn't happen to start with "on" (e.g. "readyEvent")
+        // isn't caught by the naming heuristic alone; this needs semantic type resolution
+        // (regression test for #25's round-3 finding).
+        var code = @"
+using UdonSharp;
+
+namespace UnityEngine.Events
+{
+    public class UnityEventBase { }
+    public class UnityEvent : UnityEventBase
+    {
+        public void AddListener(System.Action call) { }
+    }
+}
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public UnityEngine.Events.UnityEvent readyEvent;
+
+    public void Start()
+    {
+        readyEvent.AddListener(OnReady);
+    }
+
+    public void OnReady() { }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.UIEventListenerRegistration);
+    }
+
+    [Fact]
+    public void NonOnPrefixedUnrelatedTypedFieldAddListener_NoError()
+    {
+        // A non-"on"-prefixed field whose type does NOT derive from UnityEventBase must still not
+        // be flagged, even once semantic type resolution is in play.
+        var code = @"
+using UdonSharp;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public EventManager manager;
+
+    public void Start()
+    {
+        manager.AddListener(1);
+    }
+}
+
+public class EventManager
+{
+    public void AddListener(int id) { }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.UIEventListenerRegistration);
+    }
+
+    [Fact]
+    public void NullConditionalUnityEventAddListener_ReportsError()
+    {
+        // `button.onClick?.AddListener(...)` is represented via MemberBindingExpressionSyntax +
+        // ConditionalAccessExpressionSyntax rather than a plain MemberAccessExpressionSyntax
+        // (regression test for #25).
+        var code = @"
+using UdonSharp;
+using UnityEngine.UI;
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public Button button;
+
+    public void Start()
+    {
+        button.onClick?.AddListener(OnClick);
+    }
+
+    public void OnClick() { }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.UIEventListenerRegistration);
+    }
+
+    [Fact]
     public void GenericGetComponentUdonBehaviour_ReportsWarning()
     {
         var code = @"
@@ -544,6 +628,57 @@ public class TestBehaviour : UdonSharpBehaviour
     public void Start()
     {
         var rb = GetComponent<Rigidbody>();
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.DoesNotContain(errors, e => e.Code == Program.LintErrorCodes.GenericGetComponentUdonBehaviour);
+    }
+
+    [Fact]
+    public void AliasedGenericGetComponentUdonBehaviour_ReportsWarning()
+    {
+        // `using UB = VRC.Udon.UdonBehaviour;` then `GetComponent<UB>()` isn't caught by a purely
+        // textual rightmost-segment check (the type argument text is just "UB", no dots to
+        // resolve) — this needs semantic-model type resolution (regression test for #25).
+        var code = @"
+using UdonSharp;
+using UB = VRC.Udon.UdonBehaviour;
+
+namespace VRC.Udon
+{
+    public class UdonBehaviour { }
+}
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+        var udon = GetComponent<UB>();
+    }
+}";
+        var errors = Program.AnalyzeCode(code);
+        Assert.Contains(errors, e => e.Code == Program.LintErrorCodes.GenericGetComponentUdonBehaviour);
+    }
+
+    [Fact]
+    public void AliasedGenericGetComponentUnrelatedType_NoError()
+    {
+        // An alias to an unrelated type (also not literally named "UdonBehaviour") must not be
+        // mistaken for VRC.Udon.UdonBehaviour by the new semantic-resolution branch.
+        var code = @"
+using UdonSharp;
+using MyAlias = MyNamespace.SomeOtherType;
+
+namespace MyNamespace
+{
+    public class SomeOtherType { }
+}
+
+public class TestBehaviour : UdonSharpBehaviour
+{
+    public void Start()
+    {
+        var thing = GetComponent<MyAlias>();
     }
 }";
         var errors = Program.AnalyzeCode(code);
