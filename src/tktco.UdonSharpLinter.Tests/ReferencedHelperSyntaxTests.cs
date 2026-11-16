@@ -250,4 +250,37 @@ namespace Unrelated { public partial class B {
         Assert.DoesNotContain(errors, e => e.Code == 30);
     }
 
+    [Fact]
+    public void PartialBehaviour_NetworkCallableChecksApplyToAllDeclarations()
+    {
+        var errors = Program.AnalyzeCodeMultiFile(("Behaviour.cs", @"using UdonSharp;
+namespace Active { public partial class B : UdonSharpBehaviour {} }
+namespace Active { public partial class B {
+ [NetworkCallable] public int Run() => 0;
+} }
+namespace Unrelated { public partial class B {
+ [NetworkCallable] public int OrdinaryCSharpMethod() => 0;
+} }"));
+
+        Assert.Single(errors, e => e.Code == 13 && e.Line == 4);
+        Assert.DoesNotContain(errors, e => e.Code == 13 && e.Line == 7);
+    }
+
+    [Fact]
+    public void InheritedBehaviour_NetworkCallableOwnerIsResolvedSemantically()
+    {
+        var errors = Program.AnalyzeCodeMultiFile(("Behaviour.cs", @"using UdonSharp;
+namespace UdonSharp { public class UdonSharpBehaviour {} }
+public class BaseBehaviour : UdonSharpBehaviour {}
+public class DerivedBehaviour : BaseBehaviour {
+ [NetworkCallable] public int Run() => 0;
+}
+public class Ordinary {
+ [NetworkCallable] public int Run() => 0;
+}"));
+
+        Assert.Single(errors, e => e.Code == 13 && e.Line == 5);
+        Assert.DoesNotContain(errors, e => e.Code == 13 && e.Line == 8);
+    }
+
 }

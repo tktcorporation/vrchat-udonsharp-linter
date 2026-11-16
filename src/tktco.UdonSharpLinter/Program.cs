@@ -405,7 +405,7 @@ namespace tktco.UdonSharpLinter
                 CheckConstructors(root, filePath, errors);
                 CheckStaticFields(root, filePath, errors);
                 CheckNestedTypes(root, filePath, errors);
-                CheckNetworkCallableMethods(root, filePath, errors);
+                CheckNetworkCallableMethods(root, filePath, errors, compilation);
                 // Note: Properties are now supported in UdonSharp 1.0+
                 // CheckProperties(root, filePath, errors);
                 CheckMethodOverloads(root, filePath, errors);
@@ -1009,12 +1009,13 @@ namespace tktco.UdonSharpLinter
         /// NG: [NetworkCallable] public void Process(ref int value) { }
         /// OK: [NetworkCallable] public void SendData(int value, string message) { }
         /// </summary>
-        private static void CheckNetworkCallableMethods(SyntaxNode root, string filePath, List<LintError> errors)
+        private static void CheckNetworkCallableMethods(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
         {
+            var model = compilation.GetSemanticModel(root.SyntaxTree);
             var methods = FindNodes<MethodDeclarationSyntax>(root)
                 .Where(m => HasAttribute(m, "NetworkCallable") &&
                     m.Ancestors().OfType<ClassDeclarationSyntax>().FirstOrDefault() is ClassDeclarationSyntax owner &&
-                    IsUdonSharpBehaviourClass(owner));
+                    IsUdonSharpBehaviourClass(owner, model));
 
             foreach (var method in methods)
             {
@@ -2987,7 +2988,7 @@ namespace tktco.UdonSharpLinter
             CheckConstructors(root, filePath, errors);
             CheckStaticFields(root, filePath, errors);
             CheckNestedTypes(root, filePath, errors);
-            CheckNetworkCallableMethods(root, filePath, errors);
+            CheckNetworkCallableMethods(root, filePath, errors, compilation);
             // Note: Properties are now supported in UdonSharp 1.0+
             // CheckProperties(root, filePath, errors);
             CheckMethodOverloads(root, filePath, errors);
@@ -3055,7 +3056,7 @@ namespace tktco.UdonSharpLinter
                 CheckConstructors(root, filePath, errors);
                 CheckStaticFields(root, filePath, errors);
                 CheckNestedTypes(root, filePath, errors);
-                CheckNetworkCallableMethods(root, filePath, errors);
+                CheckNetworkCallableMethods(root, filePath, errors, compilation);
                 CheckMethodOverloads(root, filePath, errors);
                 CheckInterfaces(root, filePath, errors);
                 CheckCrossFileFieldAccess(root, filePath, errors, compilation);
@@ -3086,6 +3087,17 @@ namespace tktco.UdonSharpLinter
         }
 
         #endregion
+
+        // Classify partial and inherited behaviours by their type symbol, not by their name or file.
+        private static bool IsUdonSharpBehaviourClass(ClassDeclarationSyntax classDecl, SemanticModel model)
+        {
+            if (IsUdonSharpBehaviourClass(classDecl)) return true;
+            var symbol = model.GetDeclaredSymbol(classDecl);
+            return symbol != null && (InheritsFromUdonSharpBehaviour(symbol) || symbol.DeclaringSyntaxReferences
+                .Select(declaration => declaration.GetSyntax())
+                .OfType<ClassDeclarationSyntax>()
+                .Any(IsUdonSharpBehaviourClass));
+        }
 
         private static bool IsUdonSharpBehaviourClass(ClassDeclarationSyntax classDecl)
         {
