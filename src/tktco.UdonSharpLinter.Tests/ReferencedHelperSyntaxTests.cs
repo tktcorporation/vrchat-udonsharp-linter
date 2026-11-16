@@ -205,4 +205,49 @@ public static class Helpers { [NetworkCallable] public static int Run() { return
         Assert.DoesNotContain(errors, e => e.Code == 2);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PartialBehaviour_AllDeclarationsAreChecked(bool sameFile)
+    {
+        const string seed = "using UdonSharp; namespace Active { public partial class B : UdonSharpBehaviour {} }";
+        const string part = @"namespace Active { public partial class B {
+ public void Start() { throw new System.Exception(); }
+} }
+namespace Unrelated { public partial class B {
+ public void Unused() { System.Action a = () => {}; }
+} }";
+        var files = sameFile
+            ? new[] { ("Behaviour.cs", seed + part) }
+            : new[] { ("Behaviour.cs", seed), ("Behaviour.More.cs", part) };
+
+        var errors = Program.AnalyzeCodeMultiFile(files);
+
+        Assert.Single(errors, e => e.Code == 2 && e.FilePath == (sameFile ? "Behaviour.cs" : "Behaviour.More.cs"));
+        Assert.DoesNotContain(errors, e => e.Code == 34);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void CalledStaticPartialMethod_ImplementationIsChecked(bool sameFile)
+    {
+        const string definition = "public static partial class Helpers { public static partial void Run(); }";
+        const string implementation = @"public static partial class Helpers {
+ public static partial void Run() { System.Action a = () => {}; throw new System.Exception(); }
+ public static void Run(int value) { done: return; }
+ public static void Unused() { done: return; }
+}";
+        var files = sameFile
+            ? new[] { ("Behaviour.cs", Behaviour), ("Helpers.cs", definition + implementation) }
+            : new[] { ("Behaviour.cs", Behaviour), ("Helpers.cs", definition), ("Helpers.More.cs", implementation) };
+
+        var errors = Program.AnalyzeCodeMultiFile(files);
+
+        var expectedPath = sameFile ? "Helpers.cs" : "Helpers.More.cs";
+        Assert.Single(errors, e => e.Code == 34 && e.FilePath == expectedPath);
+        Assert.Single(errors, e => e.Code == 2 && e.FilePath == expectedPath);
+        Assert.DoesNotContain(errors, e => e.Code == 30);
+    }
+
 }

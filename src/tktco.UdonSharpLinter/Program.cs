@@ -312,7 +312,13 @@ namespace tktco.UdonSharpLinter
             var udonPaths = udonSharpFiles.Select(Path.GetFullPath).ToHashSet();
             foreach (var tree in compilation.SyntaxTrees.Where(t => udonPaths.Contains(Path.GetFullPath(t.FilePath))))
             {
-                foreach (var behaviour in FindUdonSharpBehaviourClasses(tree.GetRoot())) Include(behaviour);
+                var model = compilation.GetSemanticModel(tree);
+                foreach (var behaviour in FindUdonSharpBehaviourClasses(tree.GetRoot()))
+                {
+                    Include(behaviour);
+                    // Other declarations of this same behaviour may omit its base list.
+                    IncludeType(model.GetDeclaredSymbol(behaviour));
+                }
                 foreach (var import in tree.GetRoot().DescendantNodes().OfType<UsingDirectiveSyntax>()) Include(import);
             }
 
@@ -326,7 +332,11 @@ namespace tktco.UdonSharpLinter
                         model.GetSymbolInfo(invocation).Symbol is IMethodSymbol method && (method.IsStatic || method.ReducedFrom != null))
                     {
                         method = (method.ReducedFrom ?? method).OriginalDefinition;
+                        method = method.PartialDefinitionPart ?? method;
                         foreach (var declaration in method.DeclaringSyntaxReferences) Include(declaration.GetSyntax());
+                        // A partial method's defining symbol only references its signature.
+                        if (method.PartialImplementationPart is IMethodSymbol implementation)
+                            foreach (var declaration in implementation.DeclaringSyntaxReferences) Include(declaration.GetSyntax());
                     }
                     // Type positions (including inferred locals) do not turn a static method receiver
                     // into a reference to all the otherwise uncalled methods of its utility class.
