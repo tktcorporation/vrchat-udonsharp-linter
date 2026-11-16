@@ -114,6 +114,8 @@ namespace tktco.UdonSharpLinter
             // UdonSharpスクリプトから参照されるユーザー定義型のグラフを構築
             var typeReferenceGraph = BuildTypeReferenceGraph(compilation, filteredFiles);
 
+            ReportErrors(CheckReachableSyntax(compilation, filteredFiles));
+
             // 各ファイルをlint
             Parallel.ForEach(filteredFiles, file =>
             {
@@ -263,6 +265,124 @@ namespace tktco.UdonSharpLinter
             return references;
         }
 
+        // Keep original syntax nodes so semantic resolution and diagnostic locations remain valid.
+        private static void CheckCommonRestrictions(SyntaxNode root, string filePath, List<LintError> errors, CSharpCompilation compilation)
+        {
+            CheckTryCatchStatements(root, filePath, errors);
+            CheckThrowStatements(root, filePath, errors);
+            CheckLocalFunctions(root, filePath, errors);
+            CheckObjectInitializers(root, filePath, errors);
+            CheckCollectionInitializers(root, filePath, errors);
+            CheckMultidimensionalArrays(root, filePath, errors);
+            CheckGenericMethods(root, filePath, errors);
+            CheckGenericClasses(root, filePath, errors);
+            CheckTextMeshProAPIs(root, filePath, errors);
+            CheckGeneralUnexposedAPIs(root, filePath, errors);
+            CheckNullConditionalOperators(root, filePath, errors);
+            CheckAsyncAwait(root, filePath, errors);
+            CheckGotoStatements(root, filePath, errors);
+            CheckGenericCollectionTypes(root, filePath, errors);
+            CheckLinqUsage(root, filePath, errors, compilation);
+            CheckLambdaAndDelegates(root, filePath, errors);
+            CheckCoroutineUsage(root, filePath, errors);
+            CheckUIEventListenerRegistration(root, filePath, errors, compilation);
+            CheckGenericGetComponentUdonBehaviour(root, filePath, errors, compilation);
+        }
+
+        // A static call compiles the called method, not every method in its containing file/type.
+        // Explicit data-type references include the type's members. Follow both kinds transitively,
+        // using original-definition symbols to handle generic methods, extension methods and partial types.
+        private static List<LintError> CheckReachableSyntax(CSharpCompilation compilation, List<string> udonSharpFiles)
+        {
+            var scopes = new HashSet<SyntaxNode>();
+            var pending = new Queue<SyntaxNode>();
+            void Include(SyntaxNode node)
+            {
+                if (scopes.Add(node)) pending.Enqueue(node);
+            }
+            void IncludeType(ITypeSymbol? type)
+            {
+                if (type is IArrayTypeSymbol array) { IncludeType(array.ElementType); return; }
+                if (type is not INamedTypeSymbol named) return;
+                foreach (var argument in named.TypeArguments) IncludeType(argument);
+                foreach (var declaration in named.OriginalDefinition.DeclaringSyntaxReferences)
+                    Include(declaration.GetSyntax());
+            }
+
+            var udonPaths = udonSharpFiles.Select(Path.GetFullPath).ToHashSet();
+            foreach (var tree in compilation.SyntaxTrees.Where(t => udonPaths.Contains(Path.GetFullPath(t.FilePath))))
+            {
+                foreach (var behaviour in FindUdonSharpBehaviourClasses(tree.GetRoot())) Include(behaviour);
+                foreach (var import in tree.GetRoot().DescendantNodes().OfType<UsingDirectiveSyntax>()) Include(import);
+            }
+
+            while (pending.Count > 0)
+            {
+                var scope = pending.Dequeue();
+                var model = compilation.GetSemanticModel(scope.SyntaxTree);
+                foreach (var node in scope.DescendantNodesAndSelf())
+                {
+                    if (node is InvocationExpressionSyntax invocation &&
+                        model.GetSymbolInfo(invocation).Symbol is IMethodSymbol method && (method.IsStatic || method.ReducedFrom != null))
+                    {
+                        method = (method.ReducedFrom ?? method).OriginalDefinition;
+                        foreach (var declaration in method.DeclaringSyntaxReferences) Include(declaration.GetSyntax());
+                    }
+                    // Type positions (including inferred locals) do not turn a static method receiver
+                    // into a reference to all the otherwise uncalled methods of its utility class.
+                    ITypeSymbol? referenced = node switch
+                    {
+                        VariableDeclarationSyntax variable => model.GetTypeInfo(variable.Type).Type,
+                        ParameterSyntax parameter when parameter.Type != null => model.GetTypeInfo(parameter.Type).Type,
+                        MethodDeclarationSyntax declaration => model.GetTypeInfo(declaration.ReturnType).Type,
+                        PropertyDeclarationSyntax property => model.GetTypeInfo(property.Type).Type,
+                        ObjectCreationExpressionSyntax creation => model.GetTypeInfo(creation).Type,
+                        CastExpressionSyntax cast => model.GetTypeInfo(cast.Type).Type,
+                        _ => null
+                    };
+                    IncludeType(referenced);
+                    if (node is MemberAccessExpressionSyntax || node is IdentifierNameSyntax)
+                    {
+                        var symbol = model.GetSymbolInfo(node).Symbol;
+                        if (symbol is IFieldSymbol { IsStatic: true } field)
+                        {
+                            foreach (var declaration in field.OriginalDefinition.DeclaringSyntaxReferences)
+                            {
+                                var syntax = declaration.GetSyntax();
+                                Include(syntax.FirstAncestorOrSelf<FieldDeclarationSyntax>() ?? syntax);
+                            }
+                        }
+                        else if (symbol is IPropertySymbol { IsStatic: true } property)
+                        {
+                            foreach (var declaration in property.OriginalDefinition.DeclaringSyntaxReferences)
+                                Include(declaration.GetSyntax());
+                        }
+                    }
+                }
+            }
+
+            var errors = new List<LintError>();
+            // Collapse overlapping scopes: a type reference may also contain a reached method.
+            foreach (var scope in scopes.Where(s => !s.Ancestors().Any(scopes.Contains)))
+                CheckCommonRestrictions(scope, scope.SyntaxTree.FilePath, errors, compilation);
+            return errors.DistinctBy(e => (e.FilePath, e.Line, e.Column, e.Code, e.Severity, e.Message)).ToList();
+        }
+
+        private static void ReportErrors(IEnumerable<LintError> errors)
+        {
+            foreach (var error in errors)
+            {
+                string prefix = error.Severity == DiagnosticSeverity.Error ? "error" : "warning";
+                string path = Path.GetRelativePath(Directory.GetCurrentDirectory(), error.FilePath).Replace('\\', '/');
+                lock (_lockObject)
+                {
+                    Console.WriteLine($"{path}({error.Line},{error.Column}): {prefix} UDON{error.Code:D3}: {error.Message}");
+                    if (error.Severity == DiagnosticSeverity.Error) { _errorCount++; _hasErrors = true; }
+                    else _warningCount++;
+                }
+            }
+        }
+
         private static void LintFile(string filePath, SyntaxTree tree, CSharpCompilation compilation, Dictionary<string, HashSet<string>> callGraph)
         {
             try
@@ -271,21 +391,11 @@ namespace tktco.UdonSharpLinter
 
                 var errors = new List<LintError>();
 
-                // Check for various UdonSharp restrictions
-                CheckTryCatchStatements(root, filePath, errors);
-                CheckThrowStatements(root, filePath, errors);
-                CheckLocalFunctions(root, filePath, errors);
-                CheckObjectInitializers(root, filePath, errors);
-                CheckCollectionInitializers(root, filePath, errors);
-                CheckMultidimensionalArrays(root, filePath, errors);
+                // Check behaviour-specific restrictions
                 CheckConstructors(root, filePath, errors);
-                CheckGenericMethods(root, filePath, errors);
-                CheckGenericClasses(root, filePath, errors);
                 CheckStaticFields(root, filePath, errors);
                 CheckNestedTypes(root, filePath, errors);
                 CheckNetworkCallableMethods(root, filePath, errors);
-                CheckTextMeshProAPIs(root, filePath, errors);
-                CheckGeneralUnexposedAPIs(root, filePath, errors);
                 // Note: Properties are now supported in UdonSharp 1.0+
                 // CheckProperties(root, filePath, errors);
                 CheckMethodOverloads(root, filePath, errors);
@@ -294,18 +404,10 @@ namespace tktco.UdonSharpLinter
                 CheckCrossFileMethodInvocation(root, filePath, errors, compilation);
                 CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
                 CheckSendCustomEventMethods(root, filePath, errors, compilation);
-                CheckNullConditionalOperators(root, filePath, errors);
                 // Note: Null coalescing operator (??) is now supported in UdonSharp
                 // CheckNullCoalescingOperators(root, filePath, errors);
-                CheckAsyncAwait(root, filePath, errors);
-                CheckGotoStatements(root, filePath, errors);
+
                 CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
-                CheckGenericCollectionTypes(root, filePath, errors);
-                CheckLinqUsage(root, filePath, errors, compilation);
-                CheckLambdaAndDelegates(root, filePath, errors);
-                CheckCoroutineUsage(root, filePath, errors);
-                CheckUIEventListenerRegistration(root, filePath, errors, compilation);
-                CheckGenericGetComponentUdonBehaviour(root, filePath, errors, compilation);
                 CheckSynchronizationConstraints(root, filePath, errors, compilation);
 
                 // Report errors
@@ -641,7 +743,7 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckTryCatchStatements(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var tryStatements = root.DescendantNodes().OfType<TryStatementSyntax>();
+            var tryStatements = root.DescendantNodesAndSelf().OfType<TryStatementSyntax>();
             foreach (var tryStatement in tryStatements)
             {
                 AddError(errors, filePath, tryStatement,
@@ -662,7 +764,7 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckThrowStatements(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var throwStatements = root.DescendantNodes()
+            var throwStatements = root.DescendantNodesAndSelf()
                 .Where(n => n is ThrowStatementSyntax || n is ThrowExpressionSyntax);
 
             foreach (var throwStatement in throwStatements)
@@ -684,7 +786,7 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckLocalFunctions(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var localFunctions = root.DescendantNodes().OfType<LocalFunctionStatementSyntax>();
+            var localFunctions = root.DescendantNodesAndSelf().OfType<LocalFunctionStatementSyntax>();
             foreach (var localFunction in localFunctions)
             {
                 AddError(errors, filePath, localFunction,
@@ -705,7 +807,7 @@ namespace tktco.UdonSharpLinter
         private static void CheckObjectInitializers(SyntaxNode root, string filePath, List<LintError> errors)
         {
             // Check for object initializers (e.g., new MyClass { X = 1 })
-            var objectCreations = root.DescendantNodes()
+            var objectCreations = root.DescendantNodesAndSelf()
                 .OfType<ObjectCreationExpressionSyntax>()
                 .Where(n => n.Initializer != null &&
                            n.Initializer.Kind() == SyntaxKind.ObjectInitializerExpression);
@@ -731,7 +833,7 @@ namespace tktco.UdonSharpLinter
         private static void CheckCollectionInitializers(SyntaxNode root, string filePath, List<LintError> errors)
         {
             // Check for collection initializers on non-array types
-            var collectionCreations = root.DescendantNodes()
+            var collectionCreations = root.DescendantNodesAndSelf()
                 .OfType<ObjectCreationExpressionSyntax>()
                 .Where(n => n.Initializer != null &&
                            n.Initializer.Kind() == SyntaxKind.CollectionInitializerExpression &&
@@ -758,7 +860,7 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckMultidimensionalArrays(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var arrayTypes = root.DescendantNodes().OfType<ArrayTypeSyntax>();
+            var arrayTypes = root.DescendantNodesAndSelf().OfType<ArrayTypeSyntax>();
             foreach (var arrayType in arrayTypes)
             {
                 if (arrayType.RankSpecifiers.Any(rs => rs.Sizes.Count > 1))
@@ -810,19 +912,11 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckGenericMethods(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var classes = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
-                .Where(c => IsUdonSharpBehaviourClass(c));
-
-            foreach (var classDecl in classes)
+            foreach (var method in root.DescendantNodesAndSelf().OfType<MethodDeclarationSyntax>()
+                .Where(m => m.TypeParameterList != null))
             {
-                var genericMethods = classDecl.Members.OfType<MethodDeclarationSyntax>()
-                    .Where(m => m.TypeParameterList != null);
-
-                foreach (var method in genericMethods)
-                {
-                    AddError(errors, filePath, method,
-                        "Generic methods are not supported in UdonSharpBehaviour", LintErrorCodes.GenericMethod);
-                }
+                AddError(errors, filePath, method,
+                    "Generic methods are not supported in UdonSharp", LintErrorCodes.GenericMethod);
             }
         }
 
@@ -908,7 +1002,9 @@ namespace tktco.UdonSharpLinter
         private static void CheckNetworkCallableMethods(SyntaxNode root, string filePath, List<LintError> errors)
         {
             var methods = FindNodes<MethodDeclarationSyntax>(root)
-                .Where(m => HasAttribute(m, "NetworkCallable"));
+                .Where(m => HasAttribute(m, "NetworkCallable") &&
+                    m.Ancestors().OfType<ClassDeclarationSyntax>().FirstOrDefault() is ClassDeclarationSyntax owner &&
+                    IsUdonSharpBehaviourClass(owner));
 
             foreach (var method in methods)
             {
@@ -1028,7 +1124,7 @@ namespace tktco.UdonSharpLinter
             };
 
             // メンバーアクセス式を検出
-            var memberAccesses = root.DescendantNodes().OfType<MemberAccessExpressionSyntax>();
+            var memberAccesses = root.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>();
 
             foreach (var memberAccess in memberAccesses)
             {
@@ -1089,7 +1185,7 @@ namespace tktco.UdonSharpLinter
                 { @"\bApplication\.Quit\b", "Application.Quit is not exposed to Udon" }
             };
 
-            var invocations = root.DescendantNodes().OfType<InvocationExpressionSyntax>();
+            var invocations = root.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>();
 
             foreach (var invocation in invocations)
             {
@@ -1239,8 +1335,8 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckGenericClasses(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var classes = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
-                .Where(c => IsUdonSharpBehaviourClass(c) && c.TypeParameterList != null);
+            var classes = root.DescendantNodesAndSelf().OfType<ClassDeclarationSyntax>()
+                .Where(c => c.TypeParameterList != null);
 
             foreach (var classDecl in classes)
             {
@@ -2055,7 +2151,7 @@ namespace tktco.UdonSharpLinter
         private static void CheckNullConditionalOperators(SyntaxNode root, string filePath, List<LintError> errors)
         {
             // ?. 演算子 (ConditionalAccessExpression)
-            var conditionalAccesses = root.DescendantNodes().OfType<ConditionalAccessExpressionSyntax>();
+            var conditionalAccesses = root.DescendantNodesAndSelf().OfType<ConditionalAccessExpressionSyntax>();
 
             foreach (var conditionalAccess in conditionalAccesses)
             {
@@ -2117,7 +2213,7 @@ namespace tktco.UdonSharpLinter
         private static void CheckAsyncAwait(SyntaxNode root, string filePath, List<LintError> errors)
         {
             // async メソッド
-            var asyncMethods = root.DescendantNodes()
+            var asyncMethods = root.DescendantNodesAndSelf()
                 .OfType<MethodDeclarationSyntax>()
                 .Where(m => m.Modifiers.Any(mod => mod.IsKind(SyntaxKind.AsyncKeyword)));
 
@@ -2129,7 +2225,7 @@ namespace tktco.UdonSharpLinter
             }
 
             // async ローカル関数（LocalFunctionで既にエラーになるが、より具体的なメッセージを出す）
-            var asyncLocalFunctions = root.DescendantNodes()
+            var asyncLocalFunctions = root.DescendantNodesAndSelf()
                 .OfType<LocalFunctionStatementSyntax>()
                 .Where(f => f.Modifiers.Any(mod => mod.IsKind(SyntaxKind.AsyncKeyword)));
 
@@ -2141,7 +2237,7 @@ namespace tktco.UdonSharpLinter
             }
 
             // await 式
-            var awaitExpressions = root.DescendantNodes().OfType<AwaitExpressionSyntax>();
+            var awaitExpressions = root.DescendantNodesAndSelf().OfType<AwaitExpressionSyntax>();
 
             foreach (var awaitExpr in awaitExpressions)
             {
@@ -2167,7 +2263,7 @@ namespace tktco.UdonSharpLinter
         private static void CheckGotoStatements(SyntaxNode root, string filePath, List<LintError> errors)
         {
             // goto 文
-            var gotoStatements = root.DescendantNodes().OfType<GotoStatementSyntax>();
+            var gotoStatements = root.DescendantNodesAndSelf().OfType<GotoStatementSyntax>();
 
             foreach (var gotoStmt in gotoStatements)
             {
@@ -2184,7 +2280,7 @@ namespace tktco.UdonSharpLinter
             }
 
             // ラベル付き文
-            var labeledStatements = root.DescendantNodes().OfType<LabeledStatementSyntax>();
+            var labeledStatements = root.DescendantNodesAndSelf().OfType<LabeledStatementSyntax>();
 
             foreach (var labeledStmt in labeledStatements)
             {
@@ -2348,7 +2444,7 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckGenericCollectionTypes(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            var genericNames = root.DescendantNodes().OfType<GenericNameSyntax>()
+            var genericNames = root.DescendantNodesAndSelf().OfType<GenericNameSyntax>()
                 .Where(g => BannedGenericCollectionNames.Contains(g.Identifier.Text));
 
             foreach (var generic in genericNames)
@@ -2378,7 +2474,7 @@ namespace tktco.UdonSharpLinter
             // 解決される呼び出し(namespace alias, global using, 修飾なしの拡張メソッド構文など)も検出する
             var semanticModel = compilation.GetSemanticModel(root.SyntaxTree);
 
-            foreach (var node in root.DescendantNodes())
+            foreach (var node in root.DescendantNodesAndSelf())
             {
                 if (node is UsingDirectiveSyntax usingDirective && usingDirective.Name != null &&
                     IsLinqNamespaceText(usingDirective.Name.ToString()))
@@ -2440,7 +2536,7 @@ namespace tktco.UdonSharpLinter
         /// </summary>
         private static void CheckLambdaAndDelegates(SyntaxNode root, string filePath, List<LintError> errors)
         {
-            foreach (var node in root.DescendantNodes())
+            foreach (var node in root.DescendantNodesAndSelf())
             {
                 switch (node)
                 {
@@ -2481,7 +2577,7 @@ namespace tktco.UdonSharpLinter
         {
             const string message = "Coroutines are not supported in UdonSharp. Use SendCustomEventDelayedSeconds/SendCustomEventDelayedFrames instead.";
 
-            foreach (var node in root.DescendantNodes())
+            foreach (var node in root.DescendantNodesAndSelf())
             {
                 if (node is YieldStatementSyntax)
                 {
@@ -2518,7 +2614,7 @@ namespace tktco.UdonSharpLinter
             // 誤検知を避ける。レシーバーは`button.onClick`のような通常のメンバーアクセス、
             // `button.onClick?.AddListener(...)`のようなnull条件演算子経由のメンバーアクセス、
             // `onReady`のようにUnityEventが直接フィールド/プロパティとして公開されている場合、いずれにも対応する
-            foreach (var invocation in root.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            foreach (var invocation in root.DescendantNodesAndSelf().OfType<InvocationExpressionSyntax>())
             {
                 if (!IsInvocationOf(invocation, "AddListener"))
                     continue;
@@ -2590,7 +2686,7 @@ namespace tktco.UdonSharpLinter
         {
             var semanticModel = compilation.GetSemanticModel(root.SyntaxTree);
 
-            var genericGetComponents = root.DescendantNodes().OfType<GenericNameSyntax>()
+            var genericGetComponents = root.DescendantNodesAndSelf().OfType<GenericNameSyntax>()
                 .Where(g => g.Identifier.Text == "GetComponent" &&
                             g.TypeArgumentList.Arguments.Count == 1 &&
                             IsUdonBehaviourType(g.TypeArgumentList.Arguments[0], semanticModel));
@@ -2875,21 +2971,13 @@ namespace tktco.UdonSharpLinter
 
             var errors = new List<LintError>();
 
-            // Run all syntax checks
-            CheckTryCatchStatements(root, filePath, errors);
-            CheckThrowStatements(root, filePath, errors);
-            CheckLocalFunctions(root, filePath, errors);
-            CheckObjectInitializers(root, filePath, errors);
-            CheckCollectionInitializers(root, filePath, errors);
-            CheckMultidimensionalArrays(root, filePath, errors);
+            CheckCommonRestrictions(root, filePath, errors, compilation);
+
+            // Check behaviour-specific restrictions
             CheckConstructors(root, filePath, errors);
-            CheckGenericMethods(root, filePath, errors);
-            CheckGenericClasses(root, filePath, errors);
             CheckStaticFields(root, filePath, errors);
             CheckNestedTypes(root, filePath, errors);
             CheckNetworkCallableMethods(root, filePath, errors);
-            CheckTextMeshProAPIs(root, filePath, errors);
-            CheckGeneralUnexposedAPIs(root, filePath, errors);
             // Note: Properties are now supported in UdonSharp 1.0+
             // CheckProperties(root, filePath, errors);
             CheckMethodOverloads(root, filePath, errors);
@@ -2898,18 +2986,10 @@ namespace tktco.UdonSharpLinter
             CheckCrossFileMethodInvocation(root, filePath, errors, compilation);
             CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
             CheckSendCustomEventMethods(root, filePath, errors, compilation);
-            CheckNullConditionalOperators(root, filePath, errors);
             // Note: Null coalescing operator (??) is now supported in UdonSharp
             // CheckNullCoalescingOperators(root, filePath, errors);
-            CheckAsyncAwait(root, filePath, errors);
-            CheckGotoStatements(root, filePath, errors);
+
             CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
-            CheckGenericCollectionTypes(root, filePath, errors);
-            CheckLinqUsage(root, filePath, errors, compilation);
-            CheckLambdaAndDelegates(root, filePath, errors);
-            CheckCoroutineUsage(root, filePath, errors);
-            CheckUIEventListenerRegistration(root, filePath, errors, compilation);
-            CheckGenericGetComponentUdonBehaviour(root, filePath, errors, compilation);
             CheckSynchronizationConstraints(root, filePath, errors, compilation);
 
             return errors;
@@ -2955,43 +3035,24 @@ namespace tktco.UdonSharpLinter
             var callGraph = BuildCallGraph(compilation, udonSharpFiles);
             var typeReferenceGraph = BuildTypeReferenceGraph(compilation, udonSharpFiles);
 
-            var errors = new List<LintError>();
+            var errors = CheckReachableSyntax(compilation, udonSharpFiles);
 
             foreach (var normalizedPath in udonSharpFiles)
             {
                 var root = syntaxTreeDict[normalizedPath].GetRoot();
                 var filePath = rawPaths[normalizedPath];
 
-                CheckTryCatchStatements(root, filePath, errors);
-                CheckThrowStatements(root, filePath, errors);
-                CheckLocalFunctions(root, filePath, errors);
-                CheckObjectInitializers(root, filePath, errors);
-                CheckCollectionInitializers(root, filePath, errors);
-                CheckMultidimensionalArrays(root, filePath, errors);
                 CheckConstructors(root, filePath, errors);
-                CheckGenericMethods(root, filePath, errors);
-                CheckGenericClasses(root, filePath, errors);
                 CheckStaticFields(root, filePath, errors);
                 CheckNestedTypes(root, filePath, errors);
                 CheckNetworkCallableMethods(root, filePath, errors);
-                CheckTextMeshProAPIs(root, filePath, errors);
-                CheckGeneralUnexposedAPIs(root, filePath, errors);
                 CheckMethodOverloads(root, filePath, errors);
                 CheckInterfaces(root, filePath, errors);
                 CheckCrossFileFieldAccess(root, filePath, errors, compilation);
                 CheckCrossFileMethodInvocation(root, filePath, errors, compilation);
                 CheckUdonBehaviourSerializableClassUsage(root, filePath, errors, compilation);
                 CheckSendCustomEventMethods(root, filePath, errors, compilation);
-                CheckNullConditionalOperators(root, filePath, errors);
-                CheckAsyncAwait(root, filePath, errors);
-                CheckGotoStatements(root, filePath, errors);
                 CheckUserDefinedTypeStaticFieldAccess(root, filePath, errors, compilation);
-                CheckGenericCollectionTypes(root, filePath, errors);
-                CheckLinqUsage(root, filePath, errors, compilation);
-                CheckLambdaAndDelegates(root, filePath, errors);
-                CheckCoroutineUsage(root, filePath, errors);
-                CheckUIEventListenerRegistration(root, filePath, errors, compilation);
-                CheckGenericGetComponentUdonBehaviour(root, filePath, errors, compilation);
                 CheckSynchronizationConstraints(root, filePath, errors, compilation);
             }
 
