@@ -283,4 +283,26 @@ public class Ordinary {
         Assert.DoesNotContain(errors, e => e.Code == 13 && e.Line == 8);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void InheritedBehaviour_CommonChecksAreSeededSemantically(bool includeSdkStub)
+    {
+        var source = @"using UdonSharp;
+public class BaseBehaviour : UdonSharpBehaviour {}
+public class DerivedBehaviour : BaseBehaviour {
+ public void Start() { throw new System.Exception(); }
+}
+public class Ordinary {
+ public void Unused() { System.Action a = () => {}; }
+}";
+        if (includeSdkStub)
+            source += "namespace UdonSharp { public class UdonSharpBehaviour {} }";
+
+        var errors = Program.AnalyzeCodeMultiFile(("Behaviour.cs", source));
+
+        Assert.Single(errors, e => e.Code == 2 && e.Line == 4);
+        Assert.DoesNotContain(errors, e => e.Code == 34);
+    }
+
 }

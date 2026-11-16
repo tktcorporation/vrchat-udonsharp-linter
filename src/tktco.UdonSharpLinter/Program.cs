@@ -313,7 +313,9 @@ namespace tktco.UdonSharpLinter
             foreach (var tree in compilation.SyntaxTrees.Where(t => udonPaths.Contains(Path.GetFullPath(t.FilePath))))
             {
                 var model = compilation.GetSemanticModel(tree);
-                foreach (var behaviour in FindUdonSharpBehaviourClasses(tree.GetRoot()))
+                var behaviours = tree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>()
+                    .Where(declaration => IsUdonSharpBehaviourClass(declaration, model));
+                foreach (var behaviour in behaviours)
                 {
                     Include(behaviour);
                     // Other declarations of this same behaviour may omit its base list.
